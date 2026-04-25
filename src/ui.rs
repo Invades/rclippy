@@ -371,7 +371,9 @@ impl eframe::App for RclippyApp {
             ui.horizontal(|ui| {
                 ui.label("Max bytes");
                 if ui
-                    .add(egui::DragValue::new(&mut self.config.max_text_bytes).range(1..=16_777_216))
+                    .add(
+                        egui::DragValue::new(&mut self.config.max_text_bytes).range(1..=16_777_216),
+                    )
                     .changed()
                 {
                     settings_changed = true;
