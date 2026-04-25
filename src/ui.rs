@@ -20,6 +20,21 @@ enum UiEvent {
     Tray(TrayCommand),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PairingMode {
+    Host,
+    Client,
+}
+
+impl PairingMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Host => "Host: show pairing code",
+            Self::Client => "Client: enter pairing code",
+        }
+    }
+}
+
 pub struct RclippyApp {
     runtime: Arc<Runtime>,
     config_store: ConfigStore,
@@ -31,6 +46,7 @@ pub struct RclippyApp {
     rx: mpsc::Receiver<UiEvent>,
     tray_rx: mpsc::Receiver<TrayCommand>,
     status_message: String,
+    pairing_mode: PairingMode,
     pair_code: Option<String>,
     join_addr: String,
     join_code: String,
@@ -59,6 +75,7 @@ impl RclippyApp {
             rx,
             tray_rx,
             status_message: String::new(),
+            pairing_mode: PairingMode::Host,
             pair_code: None,
             join_code: String::new(),
             pairing_busy: false,
@@ -292,33 +309,61 @@ impl eframe::App for RclippyApp {
         ui.add_space(12.0);
         ui.heading("Pairing");
         ui.horizontal(|ui| {
-            if ui
-                .add_enabled(!self.pairing_busy, egui::Button::new("Show code"))
-                .clicked()
-            {
-                self.start_host_pairing();
-            }
+            ui.label("Role");
+            egui::ComboBox::from_id_salt("pairing_mode")
+                .selected_text(self.pairing_mode.label())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.pairing_mode,
+                        PairingMode::Host,
+                        PairingMode::Host.label(),
+                    );
+                    ui.selectable_value(
+                        &mut self.pairing_mode,
+                        PairingMode::Client,
+                        PairingMode::Client.label(),
+                    );
+                });
+        });
+        ui.horizontal(|ui| {
             if ui.button("Unpair").clicked() {
                 self.unpair();
             }
         });
-        if let Some(code) = &self.pair_code {
-            ui.monospace(format!("Code: {code}"));
-        }
-        ui.horizontal(|ui| {
-            ui.label("Peer addr");
-            ui.text_edit_singleline(&mut self.join_addr);
-        });
-        ui.horizontal(|ui| {
-            ui.label("Code");
-            ui.text_edit_singleline(&mut self.join_code);
-            if ui
-                .add_enabled(!self.pairing_busy, egui::Button::new("Pair"))
-                .clicked()
-            {
-                self.start_join_pairing();
+
+        match self.pairing_mode {
+            PairingMode::Host => {
+                ui.horizontal(|ui| {
+                    ui.label("Listen");
+                    ui.monospace(&self.config.listen_addr);
+                });
+                if ui
+                    .add_enabled(!self.pairing_busy, egui::Button::new("Show pairing code"))
+                    .clicked()
+                {
+                    self.start_host_pairing();
+                }
+                if let Some(code) = &self.pair_code {
+                    ui.monospace(format!("Code: {code}"));
+                }
             }
-        });
+            PairingMode::Client => {
+                ui.horizontal(|ui| {
+                    ui.label("Host addr");
+                    ui.text_edit_singleline(&mut self.join_addr);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Code");
+                    ui.text_edit_singleline(&mut self.join_code);
+                    if ui
+                        .add_enabled(!self.pairing_busy, egui::Button::new("Pair"))
+                        .clicked()
+                    {
+                        self.start_join_pairing();
+                    }
+                });
+            }
+        }
 
         if !self.status_message.is_empty() {
             ui.add_space(8.0);
