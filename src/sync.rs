@@ -21,16 +21,14 @@ use crate::{
     config::Config,
     frame::{Frame, read_frame, sha256_text, validate_clipboard_frame, write_frame},
     secrets::{Identity, PeerIdentity},
-    transport::{
-        ConnectionSide, accept_tls, client_hello, connect_tls, server_hello,
-        should_keep_connection, verify_expected_peer,
-    },
+    transport::{accept_tls, client_hello, connect_tls, server_hello, verify_expected_peer},
 };
 
 #[derive(Debug, Clone)]
 pub struct SyncStatusSnapshot {
     pub paired: bool,
     pub connected: bool,
+    pub active_connections: usize,
     pub message: String,
     pub last_error: Option<String>,
     pub peer_device_id: Option<String>,
@@ -42,6 +40,7 @@ impl Default for SyncStatusSnapshot {
         Self {
             paired: false,
             connected: false,
+            active_connections: 0,
             message: "Not paired".to_owned(),
             last_error: None,
             peer_device_id: None,
@@ -70,16 +69,42 @@ impl SyncStatus {
     pub fn set_connected(&self, connected: bool, message: impl Into<String>) {
         let mut status = self.inner.lock().expect("sync status poisoned");
         status.connected = connected;
+        if !connected {
+            status.active_connections = 0;
+        }
         status.message = message.into();
         if connected {
             status.last_error = None;
         }
     }
 
+    pub fn connection_started(&self, message: impl Into<String>) {
+        let mut status = self.inner.lock().expect("sync status poisoned");
+        status.active_connections += 1;
+        status.connected = true;
+        status.message = message.into();
+        status.last_error = None;
+    }
+
+    pub fn connection_ended(&self, message: impl Into<String>) {
+        let mut status = self.inner.lock().expect("sync status poisoned");
+        status.active_connections = status.active_connections.saturating_sub(1);
+        status.connected = status.active_connections > 0;
+        if !status.connected {
+            status.message = message.into();
+        }
+    }
+
+    pub fn set_waiting(&self, message: impl Into<String>) {
+        let mut status = self.inner.lock().expect("sync status poisoned");
+        if !status.connected {
+            status.message = message.into();
+        }
+    }
+
     pub fn set_error(&self, message: impl Into<String>) {
         let message = message.into();
         let mut status = self.inner.lock().expect("sync status poisoned");
-        status.connected = false;
         status.message = message.clone();
         status.last_error = Some(message);
     }
@@ -202,16 +227,6 @@ pub fn start_background_sync(
     };
 
     status.set_paired(&peer);
-    if !config.has_peer_addr() {
-        status.set_connected(false, "Peer address not configured");
-        return SyncHandle {
-            shutdown,
-            tasks: Vec::new(),
-            clipboard_thread: None,
-            status,
-        };
-    }
-
     let (outbound_tx, _) = broadcast::channel::<Frame>(64);
     let echo = Arc::new(Mutex::new(EchoSuppressor::default()));
 
@@ -223,7 +238,7 @@ pub fn start_background_sync(
         status.clone(),
     );
 
-    let incoming_task = runtime.spawn(incoming_loop(
+    let mut tasks = vec![runtime.spawn(incoming_loop(
         config.clone(),
         identity.clone(),
         peer.clone(),
@@ -231,21 +246,25 @@ pub fn start_background_sync(
         outbound_tx.clone(),
         echo.clone(),
         status.clone(),
-    ));
+    ))];
 
-    let outgoing_task = runtime.spawn(outgoing_loop(
-        config,
-        identity,
-        peer,
-        shutdown.clone(),
-        outbound_tx,
-        echo,
-        status.clone(),
-    ));
+    if config.has_peer_addr() {
+        tasks.push(runtime.spawn(outgoing_loop(
+            config,
+            identity,
+            peer,
+            shutdown.clone(),
+            outbound_tx,
+            echo,
+            status.clone(),
+        )));
+    } else {
+        status.set_waiting("Paired; waiting for peer connection");
+    }
 
     SyncHandle {
         shutdown,
-        tasks: vec![incoming_task, outgoing_task],
+        tasks,
         clipboard_thread: Some(clipboard_thread),
         status,
     }
@@ -322,13 +341,6 @@ async fn incoming_loop(
                     status.set_error(format!("Incoming peer rejected: {err:#}"));
                     continue;
                 }
-                if !should_keep_connection(
-                    &identity.device_id,
-                    &peer.device_id,
-                    ConnectionSide::Incoming,
-                ) {
-                    continue;
-                }
                 let rx = outbound_tx.subscribe();
                 run_connection(
                     stream,
@@ -381,14 +393,6 @@ async fn outgoing_loop(
                     sleep(backoff).await;
                     continue;
                 }
-                if !should_keep_connection(
-                    &identity.device_id,
-                    &peer.device_id,
-                    ConnectionSide::Outgoing,
-                ) {
-                    sleep(backoff).await;
-                    continue;
-                }
                 backoff = Duration::from_secs(1);
                 let rx = outbound_tx.subscribe();
                 run_connection(
@@ -403,7 +407,7 @@ async fn outgoing_loop(
                 .await;
             }
             Err(err) => {
-                status.set_connected(false, format!("Waiting for peer: {err:#}"));
+                status.set_waiting(format!("Waiting for peer: {err:#}"));
                 sleep(backoff).await;
                 backoff = (backoff * 2).min(Duration::from_secs(30));
             }
@@ -422,8 +426,9 @@ async fn run_connection<S>(
 ) where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    status.set_connected(true, connected_message);
+    status.connection_started(connected_message);
     let (mut reader, mut writer) = tokio::io::split(stream);
+    let mut end_message = "Disconnected".to_owned();
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
@@ -466,14 +471,14 @@ async fn run_connection<S>(
                     Ok(Frame::Error { message }) => status.set_error(format!("Peer error: {message}")),
                     Ok(Frame::Hello { .. }) => status.set_error("Unexpected hello"),
                     Err(err) => {
-                        status.set_connected(false, format!("Disconnected: {err:#}"));
+                        end_message = format!("Disconnected: {err:#}");
                         break;
                     }
                 }
             }
         }
     }
-    status.set_connected(false, "Disconnected");
+    status.connection_ended(end_message);
 }
 
 async fn set_system_clipboard_text(text: String) -> Result<()> {
