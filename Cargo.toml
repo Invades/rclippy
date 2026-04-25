@@ -40,3 +40,6 @@ tiny-skia = "0.11"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }
+
+[patch.crates-io]
+winit = { git = "https://github.com/Invades/winit", branch = "win32-taskbar-created-0.30" }

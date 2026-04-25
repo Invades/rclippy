@@ -1062,6 +1062,11 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 
 [[package]]
 name = "dpi"
+version = "0.1.1"
+source = "git+https://github.com/Invades/winit?branch=win32-taskbar-created-0.30#7a595c678f58f96f92b303128bf5064816f1870a"
+
+[[package]]
+name = "dpi"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
@@ -2540,7 +2545,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c9fec5a4e89860383d778d10563a605838f8f0b2f9303868937e5ff32e86177"
 dependencies = [
  "crossbeam-channel",
- "dpi",
+ "dpi 0.1.2",
  "gtk",
  "keyboard-types",
  "libxdo",
@@ -2689,7 +2694,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 3.5.0",
+ "proc-macro-crate 2.0.2",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -3818,7 +3823,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5511,15 +5516,6 @@ dependencies = [
 
 [[package]]
 name = "windows-sys"
-version = "0.59.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
-dependencies = [
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-sys"
 version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb"
@@ -5677,8 +5673,7 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 [[package]]
 name = "winit"
 version = "0.30.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6755fa58a9f8350bd1e472d4c3fcc25f824ec358933bba33306d0b63df5978d"
+source = "git+https://github.com/Invades/winit?branch=win32-taskbar-created-0.30#7a595c678f58f96f92b303128bf5064816f1870a"
 dependencies = [
  "ahash",
  "android-activity",
@@ -5692,7 +5687,7 @@ dependencies = [
  "core-foundation 0.9.4",
  "core-graphics",
  "cursor-icon",
- "dpi",
+ "dpi 0.1.1",
  "js-sys",
  "libc",
  "memmap2",
