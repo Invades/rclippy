@@ -293,157 +293,159 @@ impl eframe::App for RclippyApp {
         self.poll_events(&ctx);
         self.update_tray_icon(&ctx);
 
-        ui.heading(APP_NAME);
-        ui.separator();
+        egui::Frame::NONE.inner_margin(12).show(ui, |ui| {
+            ui.heading(APP_NAME);
+            ui.separator();
 
-        let status = self.sync_status();
-        ui.horizontal(|ui| {
-            ui.label("Status");
-            ui.strong(if status.connected {
-                "Connected"
-            } else if status.paired {
-                "Paired"
-            } else {
-                "Not paired"
+            let status = self.sync_status();
+            ui.horizontal(|ui| {
+                ui.label("Status");
+                ui.strong(if status.connected {
+                    "Connected"
+                } else if status.paired {
+                    "Paired"
+                } else {
+                    "Not paired"
+                });
             });
-        });
-        ui.label(status.message);
-        if let Some(err) = status.last_error {
-            ui.colored_label(egui::Color32::from_rgb(180, 40, 40), err);
-        }
-        if let Some(peer) = status.peer_device_id {
-            ui.label(format!("Peer: {peer}"));
-        }
-        if let Some(fingerprint) = status.peer_fingerprint {
-            ui.label(format!("Peer cert: {}", &fingerprint[..16]));
-        }
-
-        ui.add_space(12.0);
-        ui.heading("Settings");
-        let mut settings_changed = false;
-        let mut restart_sync = false;
-        let mut update_autostart = false;
-
-        ui.horizontal(|ui| {
-            ui.label("Listen");
-            let response = ui.text_edit_singleline(&mut self.config.listen_addr);
-            if response.changed() {
-                settings_changed = true;
-                restart_sync = true;
+            ui.label(status.message);
+            if let Some(err) = status.last_error {
+                ui.colored_label(egui::Color32::from_rgb(180, 40, 40), err);
             }
-        });
-        ui.horizontal(|ui| {
-            ui.label("Peer");
-            let response = ui.text_edit_singleline(&mut self.config.peer_addr);
-            if response.changed() {
-                self.join_addr = self.config.peer_addr.clone();
-                settings_changed = true;
-                restart_sync = true;
+            if let Some(peer) = status.peer_device_id {
+                ui.label(format!("Peer: {peer}"));
             }
-        });
-        if ui
-            .checkbox(&mut self.config.start_on_login, "Start on login")
-            .changed()
-        {
-            settings_changed = true;
-            update_autostart = true;
-        }
-        if ui
-            .checkbox(
-                &mut self.config.monochrome_tray_icon,
-                "Monochrome tray icon",
-            )
-            .changed()
-        {
-            settings_changed = true;
-        }
-        ui.horizontal(|ui| {
-            ui.label("Poll ms");
+            if let Some(fingerprint) = status.peer_fingerprint {
+                ui.label(format!("Peer cert: {}", &fingerprint[..16]));
+            }
+
+            ui.add_space(12.0);
+            ui.heading("Settings");
+            let mut settings_changed = false;
+            let mut restart_sync = false;
+            let mut update_autostart = false;
+
+            ui.horizontal(|ui| {
+                ui.label("Listen");
+                let response = ui.text_edit_singleline(&mut self.config.listen_addr);
+                if response.changed() {
+                    settings_changed = true;
+                    restart_sync = true;
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Peer");
+                let response = ui.text_edit_singleline(&mut self.config.peer_addr);
+                if response.changed() {
+                    self.join_addr = self.config.peer_addr.clone();
+                    settings_changed = true;
+                    restart_sync = true;
+                }
+            });
             if ui
-                .add(egui::DragValue::new(&mut self.config.poll_ms).range(100..=10_000))
+                .checkbox(&mut self.config.start_on_login, "Start on login")
                 .changed()
             {
                 settings_changed = true;
-                restart_sync = true;
+                update_autostart = true;
             }
-        });
-        ui.horizontal(|ui| {
-            ui.label("Max bytes");
             if ui
-                .add(egui::DragValue::new(&mut self.config.max_text_bytes).range(1..=16_777_216))
+                .checkbox(
+                    &mut self.config.monochrome_tray_icon,
+                    "Monochrome tray icon",
+                )
                 .changed()
             {
                 settings_changed = true;
-                restart_sync = true;
             }
-        });
-        if settings_changed {
-            self.save_settings(update_autostart, restart_sync);
-        }
-
-        ui.add_space(12.0);
-        ui.heading("Pairing");
-        ui.horizontal(|ui| {
-            ui.label("Role");
-            egui::ComboBox::from_id_salt("pairing_mode")
-                .selected_text(self.pairing_mode.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.pairing_mode,
-                        PairingMode::Host,
-                        PairingMode::Host.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.pairing_mode,
-                        PairingMode::Client,
-                        PairingMode::Client.label(),
-                    );
-                });
-        });
-        ui.horizontal(|ui| {
-            if ui.button("Unpair").clicked() {
-                self.unpair();
-            }
-        });
-
-        match self.pairing_mode {
-            PairingMode::Host => {
-                ui.horizontal(|ui| {
-                    ui.label("Listen");
-                    ui.monospace(&self.config.listen_addr);
-                });
+            ui.horizontal(|ui| {
+                ui.label("Poll ms");
                 if ui
-                    .add_enabled(!self.pairing_busy, egui::Button::new("Show pairing code"))
-                    .clicked()
+                    .add(egui::DragValue::new(&mut self.config.poll_ms).range(100..=10_000))
+                    .changed()
                 {
-                    self.start_host_pairing();
+                    settings_changed = true;
+                    restart_sync = true;
                 }
-                if let Some(code) = &self.pair_code {
-                    ui.monospace(format!("Code: {code}"));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Max bytes");
+                if ui
+                    .add(egui::DragValue::new(&mut self.config.max_text_bytes).range(1..=16_777_216))
+                    .changed()
+                {
+                    settings_changed = true;
+                    restart_sync = true;
                 }
+            });
+            if settings_changed {
+                self.save_settings(update_autostart, restart_sync);
             }
-            PairingMode::Client => {
-                ui.horizontal(|ui| {
-                    ui.label("Host addr");
-                    ui.text_edit_singleline(&mut self.join_addr);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Code");
-                    ui.text_edit_singleline(&mut self.join_code);
+
+            ui.add_space(12.0);
+            ui.heading("Pairing");
+            ui.horizontal(|ui| {
+                ui.label("Role");
+                egui::ComboBox::from_id_salt("pairing_mode")
+                    .selected_text(self.pairing_mode.label())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.pairing_mode,
+                            PairingMode::Host,
+                            PairingMode::Host.label(),
+                        );
+                        ui.selectable_value(
+                            &mut self.pairing_mode,
+                            PairingMode::Client,
+                            PairingMode::Client.label(),
+                        );
+                    });
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Unpair").clicked() {
+                    self.unpair();
+                }
+            });
+
+            match self.pairing_mode {
+                PairingMode::Host => {
+                    ui.horizontal(|ui| {
+                        ui.label("Listen");
+                        ui.monospace(&self.config.listen_addr);
+                    });
                     if ui
-                        .add_enabled(!self.pairing_busy, egui::Button::new("Pair"))
+                        .add_enabled(!self.pairing_busy, egui::Button::new("Show pairing code"))
                         .clicked()
                     {
-                        self.start_join_pairing();
+                        self.start_host_pairing();
                     }
-                });
+                    if let Some(code) = &self.pair_code {
+                        ui.monospace(format!("Code: {code}"));
+                    }
+                }
+                PairingMode::Client => {
+                    ui.horizontal(|ui| {
+                        ui.label("Host addr");
+                        ui.text_edit_singleline(&mut self.join_addr);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Code");
+                        ui.text_edit_singleline(&mut self.join_code);
+                        if ui
+                            .add_enabled(!self.pairing_busy, egui::Button::new("Pair"))
+                            .clicked()
+                        {
+                            self.start_join_pairing();
+                        }
+                    });
+                }
             }
-        }
 
-        if !self.status_message.is_empty() {
-            ui.add_space(8.0);
-            ui.label(&self.status_message);
-        }
+            if !self.status_message.is_empty() {
+                ui.add_space(8.0);
+                ui.label(&self.status_message);
+            }
+        });
 
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(250));
