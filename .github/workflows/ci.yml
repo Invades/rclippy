@@ -11,7 +11,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+            artifact: rclippy-windows-x64
+          - os: macos-latest
+            artifact: rclippy-macos
+          - os: ubuntu-latest
+            artifact: rclippy-linux-x64
 
     steps:
       - uses: actions/checkout@v5
@@ -24,4 +30,26 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      - run: cargo build --release
 
+      - name: Package Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist
+          Copy-Item target\release\rclippy.exe dist\rclippy.exe
+          Compress-Archive -Path dist\rclippy.exe -DestinationPath dist\${{ matrix.artifact }}.zip -Force
+
+      - name: Package macOS/Linux artifact
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist/package
+          cp target/release/rclippy dist/package/rclippy
+          tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C dist/package rclippy
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/*
+          if-no-files-found: error
