@@ -1,10 +1,15 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{fmt::Debug, net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use rustls::{
-    ClientConfig, RootCertStore, ServerConfig, server::WebPkiClientVerifier, version::TLS13,
+    CertificateError, ClientConfig, DistinguishedName, Error as TlsError, ServerConfig,
+    SignatureScheme,
+    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+    crypto::{WebPkiSupportedAlgorithms, verify_tls12_signature, verify_tls13_signature},
+    server::danger::{ClientCertVerified, ClientCertVerifier},
+    version::TLS13,
 };
-use rustls_pki_types::ServerName;
+use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
@@ -32,11 +37,13 @@ pub fn install_crypto_provider() {
 
 pub fn client_config(identity: &Identity, peer: &PeerIdentity) -> Result<ClientConfig> {
     install_crypto_provider();
-    let mut roots = RootCertStore::empty();
-    roots.add(peer.cert()).context("add pinned peer cert")?;
-
+    let supported = rustls::crypto::ring::default_provider().signature_verification_algorithms;
     let mut config = ClientConfig::builder_with_protocol_versions(&[&TLS13])
-        .with_root_certificates(roots)
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(PinnedServerVerifier::new(
+            peer.cert_der.clone(),
+            supported,
+        )))
         .with_client_auth_cert(vec![identity.cert()], identity.private_key())
         .context("build client TLS config")?;
     config.alpn_protocols.push(ALPN.to_vec());
@@ -45,11 +52,8 @@ pub fn client_config(identity: &Identity, peer: &PeerIdentity) -> Result<ClientC
 
 pub fn server_config(identity: &Identity, peer: &PeerIdentity) -> Result<ServerConfig> {
     install_crypto_provider();
-    let mut roots = RootCertStore::empty();
-    roots.add(peer.cert()).context("add pinned client cert")?;
-    let verifier = WebPkiClientVerifier::builder(Arc::new(roots))
-        .build()
-        .context("build client cert verifier")?;
+    let supported = rustls::crypto::ring::default_provider().signature_verification_algorithms;
+    let verifier = Arc::new(PinnedClientVerifier::new(peer.cert_der.clone(), supported));
 
     let mut config = ServerConfig::builder_with_protocol_versions(&[&TLS13])
         .with_client_cert_verifier(verifier)
@@ -137,6 +141,122 @@ pub fn verify_expected_peer(actual: &str, expected: &PeerIdentity) -> Result<()>
         bail!("peer device id mismatch");
     }
     Ok(())
+}
+
+#[derive(Debug)]
+struct PinnedServerVerifier {
+    cert_der: Vec<u8>,
+    supported: WebPkiSupportedAlgorithms,
+}
+
+impl PinnedServerVerifier {
+    fn new(cert_der: Vec<u8>, supported: WebPkiSupportedAlgorithms) -> Self {
+        Self {
+            cert_der,
+            supported,
+        }
+    }
+}
+
+impl ServerCertVerifier for PinnedServerVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, TlsError> {
+        if end_entity.as_ref() == self.cert_der.as_slice() {
+            Ok(ServerCertVerified::assertion())
+        } else {
+            Err(TlsError::InvalidCertificate(
+                CertificateError::ApplicationVerificationFailure,
+            ))
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        verify_tls12_signature(message, cert, dss, &self.supported)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        verify_tls13_signature(message, cert, dss, &self.supported)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.supported.supported_schemes()
+    }
+}
+
+#[derive(Debug)]
+struct PinnedClientVerifier {
+    cert_der: Vec<u8>,
+    supported: WebPkiSupportedAlgorithms,
+    root_hints: Vec<DistinguishedName>,
+}
+
+impl PinnedClientVerifier {
+    fn new(cert_der: Vec<u8>, supported: WebPkiSupportedAlgorithms) -> Self {
+        Self {
+            cert_der,
+            supported,
+            root_hints: Vec::new(),
+        }
+    }
+}
+
+impl ClientCertVerifier for PinnedClientVerifier {
+    fn root_hint_subjects(&self) -> &[DistinguishedName] {
+        &self.root_hints
+    }
+
+    fn verify_client_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _now: UnixTime,
+    ) -> Result<ClientCertVerified, TlsError> {
+        if end_entity.as_ref() == self.cert_der.as_slice() {
+            Ok(ClientCertVerified::assertion())
+        } else {
+            Err(TlsError::InvalidCertificate(
+                CertificateError::ApplicationVerificationFailure,
+            ))
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        verify_tls12_signature(message, cert, dss, &self.supported)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        verify_tls13_signature(message, cert, dss, &self.supported)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.supported.supported_schemes()
+    }
 }
 
 #[cfg(test)]

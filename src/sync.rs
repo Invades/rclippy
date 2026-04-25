@@ -298,7 +298,7 @@ async fn incoming_loop(
     let listener = match TcpListener::bind(&config.listen_addr).await {
         Ok(listener) => listener,
         Err(err) => {
-            status.set_error(format!("Listen failed: {err}"));
+            status.set_error(format!("Listen failed: {err:#}"));
             return;
         }
     };
@@ -314,12 +314,12 @@ async fn incoming_loop(
                 let peer_id = match server_hello(&mut stream, &identity).await {
                     Ok(peer_id) => peer_id,
                     Err(err) => {
-                        status.set_error(format!("Incoming hello failed: {err}"));
+                        status.set_error(format!("Incoming hello failed: {err:#}"));
                         continue;
                     }
                 };
                 if let Err(err) = verify_expected_peer(&peer_id, &peer) {
-                    status.set_error(format!("Incoming peer rejected: {err}"));
+                    status.set_error(format!("Incoming peer rejected: {err:#}"));
                     continue;
                 }
                 if !should_keep_connection(
@@ -341,7 +341,7 @@ async fn incoming_loop(
                 )
                 .await;
             }
-            Ok(Err(err)) => status.set_error(format!("Incoming TLS failed: {err}")),
+            Ok(Err(err)) => status.set_error(format!("Incoming TLS failed: {err:#}")),
             Err(_) => {}
         }
     }
@@ -359,7 +359,7 @@ async fn outgoing_loop(
     let peer_addr = match config.peer_socket_addr() {
         Ok(addr) => addr,
         Err(err) => {
-            status.set_error(format!("Bad peer address: {err}"));
+            status.set_error(format!("Bad peer address: {err:#}"));
             return;
         }
     };
@@ -371,13 +371,13 @@ async fn outgoing_loop(
                 let peer_id = match client_hello(&mut stream, &identity).await {
                     Ok(peer_id) => peer_id,
                     Err(err) => {
-                        status.set_error(format!("Outgoing hello failed: {err}"));
+                        status.set_error(format!("Outgoing hello failed: {err:#}"));
                         sleep(backoff).await;
                         continue;
                     }
                 };
                 if let Err(err) = verify_expected_peer(&peer_id, &peer) {
-                    status.set_error(format!("Outgoing peer rejected: {err}"));
+                    status.set_error(format!("Outgoing peer rejected: {err:#}"));
                     sleep(backoff).await;
                     continue;
                 }
@@ -403,7 +403,7 @@ async fn outgoing_loop(
                 .await;
             }
             Err(err) => {
-                status.set_connected(false, format!("Waiting for peer: {err}"));
+                status.set_connected(false, format!("Waiting for peer: {err:#}"));
                 sleep(backoff).await;
                 backoff = (backoff * 2).min(Duration::from_secs(30));
             }
@@ -435,7 +435,7 @@ async fn run_connection<S>(
                 match frame {
                     Ok(frame) => {
                         if let Err(err) = write_frame(&mut writer, &frame).await {
-                            status.set_error(format!("Send failed: {err}"));
+                            status.set_error(format!("Send failed: {err:#}"));
                             break;
                         }
                     }
@@ -451,7 +451,7 @@ async fn run_connection<S>(
                             match echo.remote_text_to_apply(&frame, config.max_text_bytes) {
                                 Ok(text) => text,
                                 Err(err) => {
-                                    status.set_error(format!("Remote clipboard rejected: {err}"));
+                                    status.set_error(format!("Remote clipboard rejected: {err:#}"));
                                     None
                                 }
                             }
@@ -459,14 +459,14 @@ async fn run_connection<S>(
                         if let Some(text) = text
                             && let Err(err) = set_system_clipboard_text(text).await
                         {
-                            status.set_error(format!("Clipboard write failed: {err}"));
+                            status.set_error(format!("Clipboard write failed: {err:#}"));
                         }
                     }
                     Ok(Frame::Ping) | Ok(Frame::Pong) => {}
                     Ok(Frame::Error { message }) => status.set_error(format!("Peer error: {message}")),
                     Ok(Frame::Hello { .. }) => status.set_error("Unexpected hello"),
                     Err(err) => {
-                        status.set_connected(false, format!("Disconnected: {err}"));
+                        status.set_connected(false, format!("Disconnected: {err:#}"));
                         break;
                     }
                 }

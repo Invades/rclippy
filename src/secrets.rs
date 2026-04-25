@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use rand::{RngCore, rngs::OsRng};
-use rcgen::generate_simple_self_signed;
+use rcgen::{CertificateParams, ExtendedKeyUsagePurpose, KeyPair, KeyUsagePurpose};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use sha2::{Digest, Sha256};
 
@@ -149,12 +149,22 @@ pub fn generate_identity() -> Result<Identity> {
     let mut random = [0_u8; 16];
     OsRng.fill_bytes(&mut random);
     let device_id = hex::encode(random);
-    let certified = generate_simple_self_signed(vec!["rclippy.local".to_owned()])?;
+    let signing_key = KeyPair::generate()?;
+    let mut params = CertificateParams::new(vec!["rclippy.local".to_owned()])?;
+    params.key_usages = vec![
+        KeyUsagePurpose::DigitalSignature,
+        KeyUsagePurpose::KeyEncipherment,
+    ];
+    params.extended_key_usages = vec![
+        ExtendedKeyUsagePurpose::ServerAuth,
+        ExtendedKeyUsagePurpose::ClientAuth,
+    ];
+    let cert = params.self_signed(&signing_key)?;
 
     Ok(Identity {
         device_id,
-        cert_der: certified.cert.der().as_ref().to_vec(),
-        key_der: certified.signing_key.serialize_der(),
+        cert_der: cert.der().as_ref().to_vec(),
+        key_der: signing_key.serialize_der(),
     })
 }
 
