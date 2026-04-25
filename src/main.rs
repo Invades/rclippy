@@ -43,6 +43,10 @@ fn main() -> anyhow::Result<()> {
         "rclippy",
         options,
         Box::new(move |_cc| {
+            if let Err(err) = rclippy::system_fonts::install(&_cc.egui_ctx) {
+                eprintln!("rclippy system font setup failed: {err:#}");
+            }
+
             #[cfg(target_os = "macos")]
             let tray_handle = tray_tx.take().and_then(|tx| {
                 match rclippy::tray::create_tray(

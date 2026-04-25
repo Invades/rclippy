@@ -6,6 +6,7 @@ pub mod icons;
 pub mod pairing;
 pub mod secrets;
 pub mod sync;
+pub mod system_fonts;
 pub mod transport;
 pub mod tray;
 pub mod ui;

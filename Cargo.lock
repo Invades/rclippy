@@ -3655,6 +3655,7 @@ dependencies = [
  "base64",
  "directories",
  "eframe",
+ "fontdb",
  "hex",
  "hkdf",
  "hmac",
