@@ -21,6 +21,7 @@ fn main() -> anyhow::Result<()> {
     let identity = ensure_identity(&keychain).context("load local identity from keychain")?;
 
     let (tray_tx, tray_rx) = mpsc::channel();
+    #[cfg(not(target_os = "macos"))]
     let initial_icon = icons::tray_icon_variant(config.monochrome_tray_icon, egui::Theme::Dark);
     #[cfg(not(target_os = "macos"))]
     let (_tray_thread, tray_controller) = rclippy::tray::spawn_tray_thread(tray_tx, initial_icon);
