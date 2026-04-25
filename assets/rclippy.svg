@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Transparent vector Clippy with sync loop behind</title>
+  <desc id="desc">A transparent-background vector paperclip assistant with a full two-arrow circular loop behind it.</desc>
+  <defs>
+    <linearGradient id="clipTube" x1="166" y1="46" x2="334" y2="452" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e0dcff"/>
+      <stop offset="0.34" stop-color="#8782c7"/>
+      <stop offset="0.62" stop-color="#56527f"/>
+      <stop offset="1" stop-color="#b9b5ee"/>
+    </linearGradient>
+    <radialGradient id="eyeWhite" cx="36%" cy="30%" r="72%">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.68" stop-color="#f8f9ff"/>
+      <stop offset="1" stop-color="#d6d9e8"/>
+    </radialGradient>
+    <radialGradient id="pupil" cx="38%" cy="34%" r="68%">
+      <stop offset="0" stop-color="#3f3f41"/>
+      <stop offset="0.58" stop-color="#111113"/>
+      <stop offset="1" stop-color="#000000"/>
+    </radialGradient>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#101827" flood-opacity="0.2"/>
+    </filter>
+    <filter id="eyeShadow" x="-35%" y="-35%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#101827" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <g fill="none" stroke="#aaffaa" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke="#aaffaa" d="M 106 201 A 160 160 0 0 1 391 195"/>
+    <path stroke="#aaf5ff" d="M 406 311 A 160 160 0 0 1 121 317"/>
+  </g>
+  <path d="M 410 250 L 380 210 L 402 179 Z" fill="#aaffaa" stroke="#aaffaa" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 100 260 L 132 302 L 106 333 Z" fill="#aaf5ff" stroke="#aaf5ff" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+
+  <g filter="url(#softShadow)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <g stroke="#2b2944" stroke-width="29">
+      <path d="M 351.6507 209.3394 C 324.2997 231.3836 325.9099 249.4371 319.2124 283.2773 L 309.531 335.6376 C 296.2638 390.7923 297.8131 423.5157 259.3903 431.7652 C 220.9675 440.0147 174 404 174 326 C 174 286 174 254 176 226 C 181 138 214 82 274 79 C 299 79 299.8062 95.6012 299.5734 135.8516 C 299.3026 182.675 290.9042 219.9604 285.936 259.3711 C 281.4993 290.6491 282.0412 310.4668 271.2815 331.1585 C 260.5218 351.8502 238.3595 359.0344 223.7842 344.8026 C 209.2089 330.5708 207.9068 280.2289 215.648 234.368"/>
+    </g>
+    <g stroke="url(#clipTube)" stroke-width="20">
+      <path d="M 351.6507 209.3394 C 324.2997 231.3836 325.9099 249.4371 319.2124 283.2773 L 309.531 335.6376 C 296.2638 390.7923 297.8131 423.5157 259.3903 431.7652 C 220.9675 440.0147 174 404 174 326 C 174 286 174 254 176 226 C 181 138 214 82 274 79 C 299 79 299.8062 95.6012 299.5734 135.8516 C 299.3026 182.675 290.9042 219.9604 285.936 259.3711 C 281.4993 290.6491 282.0412 310.4668 271.2815 331.1585 C 260.5218 351.8502 238.3595 359.0344 223.7842 344.8026 C 209.2089 330.5708 207.9068 280.2289 215.648 234.368"/>
+    </g>
+  </g>
+
+  <g filter="url(#eyeShadow)">
+    <ellipse cx="184" cy="151" rx="49" ry="37" fill="url(#eyeWhite)" transform="rotate(-8 184 151)"/>
+    <ellipse cx="296" cy="154" rx="49" ry="37" fill="url(#eyeWhite)" transform="rotate(7 296 154)"/>
+    <ellipse cx="188" cy="154" rx="25" ry="21" fill="url(#pupil)" transform="rotate(-8 188 154)"/>
+    <ellipse cx="292" cy="157" rx="25" ry="21" fill="url(#pupil)" transform="rotate(7 292 157)"/>
+    <ellipse cx="179" cy="146" rx="7" ry="5" fill="#ffffff" opacity="0.28"/>
+    <ellipse cx="283" cy="149" rx="7" ry="5" fill="#ffffff" opacity="0.28"/>
+  </g>
+
+  <g fill="none" stroke-linecap="round">
+    <path d="M 134 118 C 158 96 194 92 220 107" stroke="#ffffff" stroke-width="11" opacity="0.55"/>
+    <path d="M 270 107 C 304 91 343 99 369 124" stroke="#ffffff" stroke-width="11" opacity="0.55"/>
+    <path d="M 134 118 C 158 96 194 92 220 107" stroke="#111111" stroke-width="8"/>
+    <path d="M 270 107 C 304 91 343 99 369 124" stroke="#111111" stroke-width="8"/>
+  </g>
+</svg>
