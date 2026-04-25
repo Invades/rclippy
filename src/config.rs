@@ -17,6 +17,7 @@ pub struct Config {
     pub listen_addr: String,
     pub peer_addr: String,
     pub start_on_login: bool,
+    pub monochrome_tray_icon: bool,
     pub poll_ms: u64,
     pub max_text_bytes: usize,
 }
@@ -27,6 +28,7 @@ impl Default for Config {
             listen_addr: "0.0.0.0:38765".to_owned(),
             peer_addr: String::new(),
             start_on_login: false,
+            monochrome_tray_icon: false,
             poll_ms: 500,
             max_text_bytes: 1_048_576,
         }
@@ -143,6 +145,7 @@ mod tests {
         let config = Config {
             peer_addr: "127.0.0.1:38766".to_owned(),
             start_on_login: true,
+            monochrome_tray_icon: true,
             ..Config::default()
         };
 

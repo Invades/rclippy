@@ -2,6 +2,7 @@ pub mod autostart;
 pub mod clipboard;
 pub mod config;
 pub mod frame;
+pub mod icons;
 pub mod pairing;
 pub mod secrets;
 pub mod sync;

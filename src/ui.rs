@@ -6,13 +6,14 @@ use tokio::runtime::Runtime;
 use crate::{
     APP_NAME, autostart,
     config::{Config, ConfigStore},
+    icons::{self, TrayIconVariant},
     pairing::{generate_pairing_code, host_pairing_once, join_pairing},
     secrets::{
         Identity, KeychainSecretStore, PeerIdentity, SecretStore, delete_peer, load_peer,
         store_peer,
     },
     sync::{SyncHandle, SyncStatusSnapshot, start_background_sync},
-    tray::TrayCommand,
+    tray::{TrayCommand, TrayController, TrayHandle},
 };
 
 enum UiEvent {
@@ -45,6 +46,9 @@ pub struct RclippyApp {
     tx: mpsc::Sender<UiEvent>,
     rx: mpsc::Receiver<UiEvent>,
     tray_rx: mpsc::Receiver<TrayCommand>,
+    tray_controller: Option<TrayController>,
+    _tray_handle: Option<TrayHandle>,
+    last_tray_icon: Option<TrayIconVariant>,
     status_message: String,
     pairing_mode: PairingMode,
     pair_code: Option<String>,
@@ -60,6 +64,8 @@ impl RclippyApp {
         config: Config,
         identity: Identity,
         tray_rx: mpsc::Receiver<TrayCommand>,
+        tray_controller: Option<TrayController>,
+        tray_handle: Option<TrayHandle>,
     ) -> Self {
         let secrets: Arc<dyn SecretStore> = Arc::new(KeychainSecretStore);
         let (tx, rx) = mpsc::channel();
@@ -74,6 +80,9 @@ impl RclippyApp {
             tx,
             rx,
             tray_rx,
+            tray_controller,
+            _tray_handle: tray_handle,
+            last_tray_icon: None,
             status_message: String::new(),
             pairing_mode: PairingMode::Host,
             pair_code: None,
@@ -248,12 +257,37 @@ impl RclippyApp {
             .map(|sync| sync.status().snapshot())
             .unwrap_or_default()
     }
+
+    fn update_tray_icon(&mut self, ctx: &egui::Context) {
+        let theme = ctx.system_theme().unwrap_or_else(|| ctx.theme());
+        let variant = icons::tray_icon_variant(self.config.monochrome_tray_icon, theme);
+        if self.last_tray_icon == Some(variant) {
+            return;
+        }
+
+        if let Some(handle) = &self._tray_handle
+            && let Err(err) = handle.set_icon(variant)
+        {
+            self.status_message = format!("Tray icon failed: {err}");
+            return;
+        }
+
+        if let Some(controller) = &self.tray_controller
+            && let Err(err) = controller.set_icon(variant)
+        {
+            self.status_message = format!("Tray icon failed: {err}");
+            return;
+        }
+
+        self.last_tray_icon = Some(variant);
+    }
 }
 
 impl eframe::App for RclippyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.poll_events(&ctx);
+        self.update_tray_icon(&ctx);
 
         ui.heading(APP_NAME);
         ui.separator();
@@ -294,6 +328,10 @@ impl eframe::App for RclippyApp {
             }
         });
         ui.checkbox(&mut self.config.start_on_login, "Start on login");
+        ui.checkbox(
+            &mut self.config.monochrome_tray_icon,
+            "Monochrome tray icon",
+        );
         ui.horizontal(|ui| {
             ui.label("Poll ms");
             ui.add(egui::DragValue::new(&mut self.config.poll_ms).range(100..=10_000));
