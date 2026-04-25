@@ -5,7 +5,7 @@ use eframe::egui;
 use rclippy::{
     config::ConfigStore,
     secrets::{KeychainSecretStore, ensure_identity},
-    tray, ui,
+    ui,
 };
 use tokio::runtime::Runtime;
 
@@ -20,7 +20,10 @@ fn main() -> anyhow::Result<()> {
     let identity = ensure_identity(&keychain).context("load local identity from keychain")?;
 
     let (tray_tx, tray_rx) = mpsc::channel();
-    let _tray_thread = tray::spawn_tray_thread(tray_tx);
+    #[cfg(not(target_os = "macos"))]
+    let _tray_thread = rclippy::tray::spawn_tray_thread(tray_tx);
+    #[cfg(target_os = "macos")]
+    let _tray_tx = tray_tx;
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
