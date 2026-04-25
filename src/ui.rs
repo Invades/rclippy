@@ -114,15 +114,19 @@ impl RclippyApp {
         ));
     }
 
-    fn save_settings(&mut self) {
+    fn save_settings(&mut self, update_autostart: bool, restart_sync: bool) {
         match self.config_store.save(&self.config) {
             Ok(()) => {
-                if let Err(err) = autostart::set_enabled(self.config.start_on_login) {
+                if update_autostart
+                    && let Err(err) = autostart::set_enabled(self.config.start_on_login)
+                {
                     self.status_message = format!("Saved, but start-on-login failed: {err}");
                 } else {
                     self.status_message = "Saved".to_owned();
                 }
-                self.restart_sync();
+                if restart_sync {
+                    self.restart_sync();
+                }
             }
             Err(err) => self.status_message = format!("Save failed: {err}"),
         }
@@ -316,32 +320,65 @@ impl eframe::App for RclippyApp {
 
         ui.add_space(12.0);
         ui.heading("Settings");
+        let mut settings_changed = false;
+        let mut restart_sync = false;
+        let mut update_autostart = false;
+
         ui.horizontal(|ui| {
             ui.label("Listen");
-            ui.text_edit_singleline(&mut self.config.listen_addr);
+            let response = ui.text_edit_singleline(&mut self.config.listen_addr);
+            if response.changed() {
+                settings_changed = true;
+                restart_sync = true;
+            }
         });
         ui.horizontal(|ui| {
             ui.label("Peer");
             let response = ui.text_edit_singleline(&mut self.config.peer_addr);
             if response.changed() {
                 self.join_addr = self.config.peer_addr.clone();
+                settings_changed = true;
+                restart_sync = true;
             }
         });
-        ui.checkbox(&mut self.config.start_on_login, "Start on login");
-        ui.checkbox(
-            &mut self.config.monochrome_tray_icon,
-            "Monochrome tray icon",
-        );
+        if ui
+            .checkbox(&mut self.config.start_on_login, "Start on login")
+            .changed()
+        {
+            settings_changed = true;
+            update_autostart = true;
+        }
+        if ui
+            .checkbox(
+                &mut self.config.monochrome_tray_icon,
+                "Monochrome tray icon",
+            )
+            .changed()
+        {
+            settings_changed = true;
+        }
         ui.horizontal(|ui| {
             ui.label("Poll ms");
-            ui.add(egui::DragValue::new(&mut self.config.poll_ms).range(100..=10_000));
+            if ui
+                .add(egui::DragValue::new(&mut self.config.poll_ms).range(100..=10_000))
+                .changed()
+            {
+                settings_changed = true;
+                restart_sync = true;
+            }
         });
         ui.horizontal(|ui| {
             ui.label("Max bytes");
-            ui.add(egui::DragValue::new(&mut self.config.max_text_bytes).range(1..=16_777_216));
+            if ui
+                .add(egui::DragValue::new(&mut self.config.max_text_bytes).range(1..=16_777_216))
+                .changed()
+            {
+                settings_changed = true;
+                restart_sync = true;
+            }
         });
-        if ui.button("Save").clicked() {
-            self.save_settings();
+        if settings_changed {
+            self.save_settings(update_autostart, restart_sync);
         }
 
         ui.add_space(12.0);
