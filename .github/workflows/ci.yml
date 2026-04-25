@@ -15,13 +15,16 @@ jobs:
           - os: windows-latest
             artifact: rclippy-windows-x64
           - os: macos-latest
-            artifact: rclippy-macos
+            artifact: rclippy-macos-universal
           - os: ubuntu-latest
             artifact: rclippy-linux-x64
 
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Install Linux tray dependencies
         if: runner.os == 'Linux'
         run: |
@@ -30,7 +33,22 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
-      - run: cargo build --release
+      - name: Build release
+        if: runner.os != 'macOS'
+        run: cargo build --release
+
+      - name: Build macOS universal release
+        if: runner.os == 'macOS'
+        run: |
+          rustup target add x86_64-apple-darwin aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+          mkdir -p dist/package
+          lipo -create \
+            -output dist/package/rclippy \
+            target/x86_64-apple-darwin/release/rclippy \
+            target/aarch64-apple-darwin/release/rclippy
+          lipo -info dist/package/rclippy
 
       - name: Package Windows artifact
         if: runner.os == 'Windows'
@@ -40,16 +58,22 @@ jobs:
           Copy-Item target\release\rclippy.exe dist\rclippy.exe
           Compress-Archive -Path dist\rclippy.exe -DestinationPath dist\${{ matrix.artifact }}.zip -Force
 
-      - name: Package macOS/Linux artifact
-        if: runner.os != 'Windows'
+      - name: Package Linux artifact
+        if: runner.os == 'Linux'
         run: |
           mkdir -p dist/package
           cp target/release/rclippy dist/package/rclippy
           tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C dist/package rclippy
 
+      - name: Package macOS artifact
+        if: runner.os == 'macOS'
+        run: tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C dist/package rclippy
+
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: dist/*
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
           if-no-files-found: error
