@@ -10,7 +10,7 @@ use sha2::Sha256;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    time::timeout,
+    time::{Instant, timeout},
 };
 use x25519_dalek::{PublicKey, StaticSecret};
 
@@ -53,10 +53,34 @@ pub async fn host_pairing_once(
     let listener = TcpListener::bind(listen_addr)
         .await
         .with_context(|| format!("bind pairing listener {listen_addr}"))?;
-    let (stream, _) = timeout(PAIRING_TIMEOUT, listener.accept())
-        .await
-        .context("pairing timed out")??;
-    handle_host_pairing(stream, code, identity).await
+    host_pairing_with_listener(listener, code, identity).await
+}
+
+async fn host_pairing_with_listener(
+    listener: TcpListener,
+    code: &str,
+    identity: &Identity,
+) -> Result<PeerIdentity> {
+    let deadline = Instant::now() + PAIRING_TIMEOUT;
+
+    loop {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .context("pairing timed out")?;
+        let (stream, _) = timeout(remaining, listener.accept())
+            .await
+            .context("pairing timed out")??;
+
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .context("pairing timed out")?;
+        match timeout(remaining, handle_host_pairing(stream, code, identity)).await {
+            Ok(Ok(peer)) => return Ok(peer),
+            Ok(Err(err)) if is_ignorable_pairing_probe(&err) => continue,
+            Ok(Err(err)) => return Err(err),
+            Err(_) => return Err(anyhow!("pairing timed out")),
+        }
+    }
 }
 
 pub async fn join_pairing(
@@ -217,6 +241,13 @@ fn decode_b64(value: &str) -> Result<Vec<u8>> {
         .context("decode base64")
 }
 
+fn is_ignorable_pairing_probe(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        let message = cause.to_string();
+        message == "pair frame too large"
+    })
+}
+
 async fn write_pair_frame<W>(writer: &mut W, frame: &PairFrame) -> std::io::Result<()>
 where
     W: AsyncWrite + Unpin,
@@ -290,6 +321,35 @@ mod tests {
                     .unwrap()
             }
         });
+        let client_peer = join_pairing(addr, &code, &client).await.unwrap();
+        let host_peer = host_task.await.unwrap();
+
+        assert_eq!(host_peer.device_id, client.device_id);
+        assert_eq!(client_peer.device_id, host.device_id);
+    }
+
+    #[tokio::test]
+    async fn host_pairing_ignores_tls_probe_before_real_pairing() {
+        let host = generate_identity().unwrap();
+        let client = generate_identity().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let code = "123-456".to_owned();
+
+        let host_for_task = host.clone();
+        let host_task = tokio::spawn({
+            let code = code.clone();
+            async move {
+                host_pairing_with_listener(listener, &code, &host_for_task)
+                    .await
+                    .unwrap()
+            }
+        });
+
+        let mut probe = TcpStream::connect(addr).await.unwrap();
+        probe.write_all(&[0xff, 0xff, 0xff, 0xff]).await.unwrap();
+        drop(probe);
+
         let client_peer = join_pairing(addr, &code, &client).await.unwrap();
         let host_peer = host_task.await.unwrap();
 
