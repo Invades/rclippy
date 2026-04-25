@@ -17,6 +17,7 @@ fontdb = "0.23"
 hex = "0.4"
 hkdf = "0.12"
 hmac = "0.12"
+hostname = "0.4"
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service"] }
 rand = "0.8"
 rcgen = { version = "0.14", features = ["crypto"] }

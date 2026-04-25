@@ -24,6 +24,8 @@ const MAX_PAIR_FRAME_BYTES: usize = 64 * 1024;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct PairHello {
     device_id: String,
+    #[serde(default)]
+    device_name: String,
     cert_der: String,
     eph_pub: String,
     nonce: String,
@@ -173,6 +175,7 @@ async fn handle_client_pairing(
 fn build_hello(identity: &Identity, eph_pub: &[u8], nonce: &[u8]) -> PairHello {
     PairHello {
         device_id: identity.device_id.clone(),
+        device_name: local_device_name(),
         cert_der: STANDARD_NO_PAD.encode(&identity.cert_der),
         eph_pub: STANDARD_NO_PAD.encode(eph_pub),
         nonce: STANDARD_NO_PAD.encode(nonce),
@@ -182,8 +185,18 @@ fn build_hello(identity: &Identity, eph_pub: &[u8], nonce: &[u8]) -> PairHello {
 fn peer_from_hello(hello: PairHello) -> Result<PeerIdentity> {
     Ok(PeerIdentity {
         device_id: hello.device_id,
+        device_name: hello.device_name,
         cert_der: decode_b64(&hello.cert_der)?,
     })
+}
+
+fn local_device_name() -> String {
+    hostname::get()
+        .ok()
+        .and_then(|name| name.into_string().ok())
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Unknown device".to_owned())
 }
 
 fn derive_pair_key(

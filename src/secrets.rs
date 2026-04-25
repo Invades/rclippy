@@ -15,6 +15,7 @@ const DEVICE_ID_KEY: &str = "device-id";
 const CERT_DER_KEY: &str = "local-cert-der";
 const KEY_DER_KEY: &str = "local-key-pkcs8-der";
 const PEER_DEVICE_ID_KEY: &str = "peer-device-id";
+const PEER_DEVICE_NAME_KEY: &str = "peer-device-name";
 const PEER_CERT_DER_KEY: &str = "peer-cert-der";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,10 +42,19 @@ impl Identity {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerIdentity {
     pub device_id: String,
+    pub device_name: String,
     pub cert_der: Vec<u8>,
 }
 
 impl PeerIdentity {
+    pub fn display_name(&self) -> &str {
+        if self.device_name.trim().is_empty() {
+            &self.device_id
+        } else {
+            &self.device_name
+        }
+    }
+
     pub fn cert(&self) -> CertificateDer<'static> {
         CertificateDer::from(self.cert_der.clone())
     }
@@ -175,21 +185,30 @@ pub fn load_peer(store: &dyn SecretStore) -> Result<Option<PeerIdentity>> {
     let Some(cert_der) = store.get(PEER_CERT_DER_KEY)? else {
         return Ok(None);
     };
+    let device_name = store
+        .get(PEER_DEVICE_NAME_KEY)?
+        .map(String::from_utf8)
+        .transpose()
+        .context("stored peer device name is not UTF-8")?
+        .unwrap_or_default();
 
     Ok(Some(PeerIdentity {
         device_id: String::from_utf8(device_id).context("stored peer device id is not UTF-8")?,
+        device_name,
         cert_der,
     }))
 }
 
 pub fn store_peer(store: &dyn SecretStore, peer: &PeerIdentity) -> Result<()> {
     store.set(PEER_DEVICE_ID_KEY, peer.device_id.as_bytes())?;
+    store.set(PEER_DEVICE_NAME_KEY, peer.device_name.as_bytes())?;
     store.set(PEER_CERT_DER_KEY, &peer.cert_der)?;
     Ok(())
 }
 
 pub fn delete_peer(store: &dyn SecretStore) -> Result<()> {
     store.delete(PEER_DEVICE_ID_KEY)?;
+    store.delete(PEER_DEVICE_NAME_KEY)?;
     store.delete(PEER_CERT_DER_KEY)?;
     Ok(())
 }
@@ -218,6 +237,7 @@ mod tests {
         let store = MemorySecretStore::default();
         let peer = PeerIdentity {
             device_id: "peer".to_owned(),
+            device_name: "workstation".to_owned(),
             cert_der: vec![1, 2, 3],
         };
 

@@ -212,11 +212,7 @@ impl RclippyApp {
                     self.config.peer_addr = self.join_addr.trim().to_owned();
                     let _ = self.config_store.save(&self.config);
                 }
-                self.status_message = format!(
-                    "Paired with {} ({})",
-                    peer.device_id,
-                    &peer.cert_fingerprint()[..12]
-                );
+                self.status_message = format!("Paired with {}", peer.display_name());
                 self.restart_sync();
             }
             Err(err) => {
@@ -308,15 +304,8 @@ impl eframe::App for RclippyApp {
                     "Not paired"
                 });
             });
-            ui.label(status.message);
             if let Some(err) = status.last_error {
                 ui.colored_label(egui::Color32::from_rgb(180, 40, 40), err);
-            }
-            if let Some(peer) = status.peer_device_id {
-                ui.label(format!("Peer: {peer}"));
-            }
-            if let Some(fingerprint) = status.peer_fingerprint {
-                ui.label(format!("Peer cert: {}", &fingerprint[..16]));
             }
 
             ui.add_space(12.0);
@@ -403,11 +392,13 @@ impl eframe::App for RclippyApp {
                         );
                     });
             });
-            ui.horizontal(|ui| {
-                if ui.button("Unpair").clicked() {
-                    self.unpair();
-                }
-            });
+            if status.paired {
+                ui.horizontal(|ui| {
+                    if ui.button("Unpair").clicked() {
+                        self.unpair();
+                    }
+                });
+            }
 
             match self.pairing_mode {
                 PairingMode::Host => {

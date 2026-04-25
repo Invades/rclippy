@@ -294,10 +294,12 @@ mod tests {
         let b = generate_identity().unwrap();
         let peer_b = PeerIdentity {
             device_id: b.device_id.clone(),
+            device_name: "b".to_owned(),
             cert_der: b.cert_der.clone(),
         };
         let peer_a = PeerIdentity {
             device_id: a.device_id.clone(),
+            device_name: "a".to_owned(),
             cert_der: a.cert_der.clone(),
         };
 
