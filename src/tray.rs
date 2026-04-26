@@ -5,8 +5,10 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+#[cfg(not(target_os = "macos"))]
+use tray_icon::{MouseButton, MouseButtonState};
 use tray_icon::{
-    MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
+    TrayIcon, TrayIconBuilder, TrayIconEvent,
     menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
 };
 
@@ -220,14 +222,13 @@ fn poll_tray_events(tx: &Sender<TrayCommand>) -> bool {
     handled
 }
 
-fn is_left_click_release(event: TrayIconEvent) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        let _ = event;
-        false
-    }
+#[cfg(target_os = "macos")]
+fn is_left_click_release(_event: TrayIconEvent) -> bool {
+    false
+}
 
-    #[cfg(not(target_os = "macos"))]
+#[cfg(not(target_os = "macos"))]
+fn is_left_click_release(event: TrayIconEvent) -> bool {
     matches!(
         event,
         TrayIconEvent::Click {
