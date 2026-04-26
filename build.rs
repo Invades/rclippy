@@ -1,6 +1,6 @@
 use std::{env, error::Error, fs, path::PathBuf};
 
-use tiny_skia::{Pixmap, Transform};
+use tiny_skia::{IntSize, Pixmap, Transform};
 
 const ICON_SIZES: [u32; 6] = [32, 40, 48, 64, 96, 256];
 const TRAY_SIZES: [u32; 5] = [32, 40, 48, 64, 96];
@@ -23,6 +23,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         fs::write(out_dir.join(format!("rclippy-{size}.rgba")), rgba)?;
     }
 
+    let package_icon_dir = PathBuf::from("target/package-icons");
+    fs::create_dir_all(&package_icon_dir)?;
+    for size in [32, 128, 256, 512, 1024] {
+        let premultiplied_rgba = render_svg_premultiplied(&tree, size)?;
+        let icon = Pixmap::from_vec(
+            premultiplied_rgba,
+            IntSize::from_wh(size, size).ok_or("create package icon size")?,
+        )
+        .ok_or("create package icon pixmap")?;
+        icon.save_png(package_icon_dir.join(format!("rclippy-{size}.png")))?;
+    }
+
     for size in TRAY_SIZES {
         let tray_rgba = render_svg(&mono_tree, size)?;
         fs::write(
@@ -35,11 +47,18 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn render_svg(tree: &resvg::usvg::Tree, size: u32) -> Result<Vec<u8>, Box<dyn Error>> {
+    Ok(unpremultiply_rgba(&render_svg_premultiplied(tree, size)?))
+}
+
+fn render_svg_premultiplied(
+    tree: &resvg::usvg::Tree,
+    size: u32,
+) -> Result<Vec<u8>, Box<dyn Error>> {
     let render_size = (size * 4).max(512);
     let rendered = render_svg_at(tree, render_size)?;
     let fitted = fit_content_to_icon(&rendered, render_size, size);
 
-    Ok(unpremultiply_rgba(&fitted))
+    Ok(fitted)
 }
 
 fn render_svg_at(tree: &resvg::usvg::Tree, size: u32) -> Result<Vec<u8>, Box<dyn Error>> {

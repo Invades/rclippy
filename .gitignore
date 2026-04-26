@@ -1,5 +1,5 @@
 /target/
+/dist/
 *.pdb
 *.log
 .DS_Store
-

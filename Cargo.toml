@@ -6,6 +6,23 @@ license = "MIT"
 description = "Simple encrypted LAN/VPN text clipboard sharing."
 repository = "https://github.com/Invades/rclippy"
 
+[package.metadata.packager]
+product-name = "rclippy"
+identifier = "eu.invades.rclippy"
+category = "Utility"
+icons = ["target/package-icons/*.png"]
+license-file = "LICENSE"
+
+[package.metadata.packager.macos]
+background-app = true
+
+[package.metadata.packager.linux]
+generate-desktop-entry = true
+
+[package.metadata.packager.nsis]
+installer-mode = "currentUser"
+display-language-selector = false
+
 [dependencies]
 anyhow = "1"
 arboard = "3.6"

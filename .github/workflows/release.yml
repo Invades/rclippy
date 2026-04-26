@@ -1,0 +1,171 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-22.04]
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libatk1.0-dev \
+            libayatana-appindicator3-dev \
+            libcairo2-dev \
+            libfuse2 \
+            libgdk-pixbuf-2.0-dev \
+            libgtk-3-dev \
+            libpango1.0-dev \
+            librsvg2-dev \
+            libx11-dev \
+            libxdo-dev \
+            libxi-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            patchelf
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  package:
+    name: package-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            format: nsis
+          - name: macos-universal
+            os: macos-latest
+            format: dmg
+          - name: linux-x64
+            os: ubuntu-22.04
+            format: deb,appimage
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
+
+      - name: Install Windows packaging dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install Linux packaging dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libatk1.0-dev \
+            libayatana-appindicator3-dev \
+            libcairo2-dev \
+            libfuse2 \
+            libgdk-pixbuf-2.0-dev \
+            libgtk-3-dev \
+            libpango1.0-dev \
+            librsvg2-dev \
+            libx11-dev \
+            libxdo-dev \
+            libxi-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            patchelf
+
+      - name: Build release
+        if: runner.os != 'macOS'
+        run: cargo build --release
+
+      - name: Build macOS universal release
+        if: runner.os == 'macOS'
+        run: |
+          rustup target add x86_64-apple-darwin aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+          mkdir -p target/universal-apple-darwin/release
+          lipo -create \
+            -output target/universal-apple-darwin/release/rclippy \
+            target/x86_64-apple-darwin/release/rclippy \
+            target/aarch64-apple-darwin/release/rclippy
+          lipo -info target/universal-apple-darwin/release/rclippy
+
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        run: cargo packager --release --formats ${{ matrix.format }} --out-dir dist/${{ matrix.name }}
+
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        run: cargo packager --release --target universal-apple-darwin --formats ${{ matrix.format }} --out-dir dist/${{ matrix.name }}
+
+      - name: Package Linux
+        if: runner.os == 'Linux'
+        run: |
+          cargo packager --release --formats ${{ matrix.format }} --out-dir dist/${{ matrix.name }}
+          mkdir -p dist/${{ matrix.name }}/portable
+          cp target/release/rclippy dist/${{ matrix.name }}/portable/rclippy
+          cp scripts/install-linux.sh dist/${{ matrix.name }}/portable/install.sh
+          cp target/package-icons/rclippy-256.png dist/${{ matrix.name }}/portable/rclippy.png
+          chmod +x dist/${{ matrix.name }}/portable/install.sh
+          tar -czf dist/${{ matrix.name }}/rclippy-linux-x64.tar.gz -C dist/${{ matrix.name }}/portable .
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: rclippy-${{ matrix.name }}
+          path: |
+            dist/${{ matrix.name }}/*.AppImage
+            dist/${{ matrix.name }}/*.deb
+            dist/${{ matrix.name }}/*.dmg
+            dist/${{ matrix.name }}/*.exe
+            dist/${{ matrix.name }}/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: github-release
+    runs-on: ubuntu-22.04
+    needs: package
+
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: rclippy ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: true
+          files: dist/*
