@@ -512,9 +512,14 @@ impl eframe::App for RclippyApp {
                 }
             }
 
-            if !self.status_message.is_empty() {
+            let status_message = if status.peer_unpaired {
+                status.message.as_str()
+            } else {
+                self.status_message.as_str()
+            };
+            if !status_message.is_empty() {
                 ui.add_space(8.0);
-                ui.label(&self.status_message);
+                ui.label(status_message);
             }
         });
 
