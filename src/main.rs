@@ -10,6 +10,10 @@ use rclippy::{
 };
 use tokio::runtime::Runtime;
 
+const WINDOW_WIDTH: f32 = 320.0;
+const WINDOW_HEIGHT: f32 = 410.0;
+const WINDOW_SIZE: [f32; 2] = [WINDOW_WIDTH, WINDOW_HEIGHT];
+
 fn main() -> anyhow::Result<()> {
     rclippy::transport::install_crypto_provider();
 
@@ -34,7 +38,12 @@ fn main() -> anyhow::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([460.0, 560.0])
+            .with_inner_size(WINDOW_SIZE)
+            .with_min_inner_size(WINDOW_SIZE)
+            .with_max_inner_size(WINDOW_SIZE)
+            .with_resizable(false)
+            .with_maximize_button(false)
+            .with_maximized(false)
             .with_icon(rclippy::icons::window_icon())
             .with_visible(!minimized),
         ..Default::default()
