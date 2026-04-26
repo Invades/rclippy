@@ -178,7 +178,13 @@ fn monochrome_rgba(data: &[u8], rgb: [u8; 3]) -> Vec<u8> {
 }
 
 fn remove_mono_details(svg: &str) -> Result<String, Box<dyn Error>> {
-    let without_eyes = remove_group(svg, r#"<g filter="url(#eyeShadow)">"#)?;
+    let without_sync_loop = remove_group(
+        svg,
+        r##"<g fill="none" stroke="#aaffaa" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">"##,
+    )?;
+    let without_first_arrow = remove_path(&without_sync_loop, r#"<path d="M 410 250"#)?;
+    let without_second_arrow = remove_path(&without_first_arrow, r#"<path d="M 100 260"#)?;
+    let without_eyes = remove_group(&without_second_arrow, r#"<g filter="url(#eyeShadow)">"#)?;
     remove_group(&without_eyes, r#"<g fill="none" stroke-linecap="round">"#)
 }
 
@@ -189,6 +195,19 @@ fn remove_group(svg: &str, start_marker: &str) -> Result<String, Box<dyn Error>>
         .find("</g>")
         .map(|offset| after_start + offset + "</g>".len())
         .ok_or("mono detail group end missing")?;
+
+    let mut output = String::with_capacity(svg.len() - (end - start));
+    output.push_str(&svg[..start]);
+    output.push_str(&svg[end..]);
+    Ok(output)
+}
+
+fn remove_path(svg: &str, start_marker: &str) -> Result<String, Box<dyn Error>> {
+    let start = svg.find(start_marker).ok_or("mono detail path missing")?;
+    let end = svg[start..]
+        .find("/>")
+        .map(|offset| start + offset + "/>".len())
+        .ok_or("mono detail path end missing")?;
 
     let mut output = String::with_capacity(svg.len() - (end - start));
     output.push_str(&svg[..start]);
