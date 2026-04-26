@@ -377,7 +377,7 @@ impl eframe::App for RclippyApp {
                 ui.strong(if status.connected {
                     "Connected"
                 } else if status.paired {
-                    "Paired"
+                    "Paired (Disconnected)"
                 } else {
                     "Not paired"
                 });
