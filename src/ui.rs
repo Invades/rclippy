@@ -50,6 +50,7 @@ pub struct RclippyApp {
     _tray_handle: Option<TrayHandle>,
     last_tray_icon: Option<TrayIconVariant>,
     title_icon: Option<egui::TextureHandle>,
+    quit_requested: bool,
     status_message: String,
     pairing_mode: PairingMode,
     pair_code: Option<String>,
@@ -85,6 +86,7 @@ impl RclippyApp {
             _tray_handle: tray_handle,
             last_tray_icon: None,
             title_icon: None,
+            quit_requested: false,
             status_message: String::new(),
             pairing_mode: PairingMode::Host,
             pair_code: None,
@@ -271,9 +273,11 @@ impl RclippyApp {
                 UiEvent::PairingFinished(result) => self.handle_pairing_result(result),
                 UiEvent::Tray(TrayCommand::ShowSettings) => {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 }
                 UiEvent::Tray(TrayCommand::Quit) => {
+                    self.quit_requested = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             }
@@ -322,13 +326,30 @@ impl RclippyApp {
             })
             .clone()
     }
+
+    fn hide_on_close_request(&mut self, ctx: &egui::Context) {
+        if self.quit_requested {
+            return;
+        }
+
+        if ctx.input(|input| input.viewport().close_requested()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
+    }
 }
 
 impl eframe::App for RclippyApp {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_events(ctx);
+        self.hide_on_close_request(ctx);
+        self.update_tray_icon(ctx);
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        self.poll_events(&ctx);
-        self.update_tray_icon(&ctx);
         let title_icon = self.title_icon(&ctx);
 
         egui::Frame::NONE.inner_margin(12).show(ui, |ui| {
