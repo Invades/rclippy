@@ -78,6 +78,8 @@ fn run_tray_thread(
     let (tray, settings_id, quit_id) = build_tray(initial_icon)?;
 
     loop {
+        pump_platform_events();
+
         while let Ok(control) = control_rx.try_recv() {
             match control {
                 TrayControl::SetIcon(variant) => {
@@ -110,6 +112,7 @@ fn build_tray(initial_icon: TrayIconVariant) -> Result<(TrayIcon, MenuId, MenuId
     let icon = crate::icons::tray_icon(initial_icon)?;
     let tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
+        .with_menu_on_right_click(true)
         .with_tooltip("rclippy")
         .with_icon(icon)
         .build()
@@ -150,3 +153,21 @@ fn handle_menu_event(
         false
     }
 }
+
+#[cfg(target_os = "windows")]
+fn pump_platform_events() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage,
+    };
+
+    unsafe {
+        let mut msg = std::mem::zeroed::<MSG>();
+        while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn pump_platform_events() {}
