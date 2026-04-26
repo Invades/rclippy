@@ -230,6 +230,18 @@ impl Drop for SyncHandle {
     }
 }
 
+#[derive(Clone)]
+struct SyncContext {
+    config: Config,
+    identity: Identity,
+    peer: PeerIdentity,
+    shutdown: Arc<AtomicBool>,
+    outbound_tx: broadcast::Sender<Frame>,
+    echo: Arc<Mutex<EchoSuppressor>>,
+    secrets: Arc<dyn SecretStore>,
+    status: SyncStatus,
+}
+
 pub fn start_background_sync(
     runtime: &tokio::runtime::Handle,
     config: Config,
@@ -255,36 +267,29 @@ pub fn start_background_sync(
     let (outbound_tx, _) = broadcast::channel::<Frame>(64);
     let echo = Arc::new(Mutex::new(EchoSuppressor::default()));
 
+    let context = SyncContext {
+        config,
+        identity,
+        peer,
+        shutdown: shutdown.clone(),
+        outbound_tx,
+        echo,
+        secrets,
+        status: status.clone(),
+    };
+
     let clipboard_thread = spawn_clipboard_thread(
-        config.clone(),
-        shutdown.clone(),
-        echo.clone(),
-        outbound_tx.clone(),
+        context.config.clone(),
+        context.shutdown.clone(),
+        context.echo.clone(),
+        context.outbound_tx.clone(),
         status.clone(),
     );
 
-    let mut tasks = vec![runtime.spawn(incoming_loop(
-        config.clone(),
-        identity.clone(),
-        peer.clone(),
-        shutdown.clone(),
-        outbound_tx.clone(),
-        echo.clone(),
-        secrets.clone(),
-        status.clone(),
-    ))];
+    let mut tasks = vec![runtime.spawn(incoming_loop(context.clone()))];
 
-    if config.has_peer_addr() {
-        tasks.push(runtime.spawn(outgoing_loop(
-            config,
-            identity,
-            peer,
-            shutdown.clone(),
-            outbound_tx.clone(),
-            echo,
-            secrets,
-            status.clone(),
-        )));
+    if context.config.has_peer_addr() {
+        tasks.push(runtime.spawn(outgoing_loop(context.clone())));
     } else {
         status.set_waiting("Paired; waiting for peer connection");
     }
@@ -293,7 +298,7 @@ pub fn start_background_sync(
         shutdown,
         tasks,
         clipboard_thread: Some(clipboard_thread),
-        outbound_tx: Some(outbound_tx.clone()),
+        outbound_tx: Some(context.outbound_tx.clone()),
         status,
     }
 }
@@ -346,113 +351,89 @@ fn spawn_clipboard_thread(
     })
 }
 
-async fn incoming_loop(
-    config: Config,
-    identity: Identity,
-    peer: PeerIdentity,
-    shutdown: Arc<AtomicBool>,
-    outbound_tx: broadcast::Sender<Frame>,
-    echo: Arc<Mutex<EchoSuppressor>>,
-    secrets: Arc<dyn SecretStore>,
-    status: SyncStatus,
-) {
-    let listener = match TcpListener::bind(&config.listen_addr).await {
+async fn incoming_loop(context: SyncContext) {
+    let listener = match TcpListener::bind(&context.config.listen_addr).await {
         Ok(listener) => listener,
         Err(err) => {
-            status.set_error(format!("Listen failed: {err:#}"));
+            context.status.set_error(format!("Listen failed: {err:#}"));
             return;
         }
     };
 
-    while !shutdown.load(Ordering::Relaxed) {
+    while !context.shutdown.load(Ordering::Relaxed) {
         match timeout(
             Duration::from_secs(1),
-            accept_tls(&listener, &identity, &peer),
+            accept_tls(&listener, &context.identity, &context.peer),
         )
         .await
         {
             Ok(Ok(mut stream)) => {
-                let peer_id = match server_hello(&mut stream, &identity).await {
+                let peer_id = match server_hello(&mut stream, &context.identity).await {
                     Ok(peer_id) => peer_id,
                     Err(err) => {
-                        status.set_error(format!("Incoming hello failed: {err:#}"));
+                        context
+                            .status
+                            .set_error(format!("Incoming hello failed: {err:#}"));
                         continue;
                     }
                 };
-                if let Err(err) = verify_expected_peer(&peer_id, &peer) {
-                    status.set_error(format!("Incoming peer rejected: {err:#}"));
+                if let Err(err) = verify_expected_peer(&peer_id, &context.peer) {
+                    context
+                        .status
+                        .set_error(format!("Incoming peer rejected: {err:#}"));
                     continue;
                 }
-                let rx = outbound_tx.subscribe();
-                run_connection(
-                    stream,
-                    config.clone(),
-                    shutdown.clone(),
-                    rx,
-                    echo.clone(),
-                    secrets.clone(),
-                    status.clone(),
-                    "Connected inbound",
-                )
-                .await;
+                let rx = context.outbound_tx.subscribe();
+                run_connection(stream, context.clone(), rx, "Connected inbound").await;
             }
-            Ok(Err(err)) => status.set_error(format!("Incoming TLS failed: {err:#}")),
+            Ok(Err(err)) => context
+                .status
+                .set_error(format!("Incoming TLS failed: {err:#}")),
             Err(_) => {}
         }
     }
 }
 
-async fn outgoing_loop(
-    config: Config,
-    identity: Identity,
-    peer: PeerIdentity,
-    shutdown: Arc<AtomicBool>,
-    outbound_tx: broadcast::Sender<Frame>,
-    echo: Arc<Mutex<EchoSuppressor>>,
-    secrets: Arc<dyn SecretStore>,
-    status: SyncStatus,
-) {
-    let peer_addr = match config.peer_socket_addr() {
+async fn outgoing_loop(context: SyncContext) {
+    let peer_addr = match context.config.peer_socket_addr() {
         Ok(addr) => addr,
         Err(err) => {
-            status.set_error(format!("Bad peer address: {err:#}"));
+            context
+                .status
+                .set_error(format!("Bad peer address: {err:#}"));
             return;
         }
     };
 
     let mut backoff = Duration::from_secs(1);
-    while !shutdown.load(Ordering::Relaxed) {
-        match connect_tls(peer_addr, &identity, &peer).await {
+    while !context.shutdown.load(Ordering::Relaxed) {
+        match connect_tls(peer_addr, &context.identity, &context.peer).await {
             Ok(mut stream) => {
-                let peer_id = match client_hello(&mut stream, &identity).await {
+                let peer_id = match client_hello(&mut stream, &context.identity).await {
                     Ok(peer_id) => peer_id,
                     Err(err) => {
-                        status.set_error(format!("Outgoing hello failed: {err:#}"));
+                        context
+                            .status
+                            .set_error(format!("Outgoing hello failed: {err:#}"));
                         sleep(backoff).await;
                         continue;
                     }
                 };
-                if let Err(err) = verify_expected_peer(&peer_id, &peer) {
-                    status.set_error(format!("Outgoing peer rejected: {err:#}"));
+                if let Err(err) = verify_expected_peer(&peer_id, &context.peer) {
+                    context
+                        .status
+                        .set_error(format!("Outgoing peer rejected: {err:#}"));
                     sleep(backoff).await;
                     continue;
                 }
                 backoff = Duration::from_secs(1);
-                let rx = outbound_tx.subscribe();
-                run_connection(
-                    stream,
-                    config.clone(),
-                    shutdown.clone(),
-                    rx,
-                    echo.clone(),
-                    secrets.clone(),
-                    status.clone(),
-                    "Connected outbound",
-                )
-                .await;
+                let rx = context.outbound_tx.subscribe();
+                run_connection(stream, context.clone(), rx, "Connected outbound").await;
             }
             Err(err) => {
-                status.set_waiting(format!("Waiting for peer: {err:#}"));
+                context
+                    .status
+                    .set_waiting(format!("Waiting for peer: {err:#}"));
                 sleep(backoff).await;
                 backoff = (backoff * 2).min(Duration::from_secs(30));
             }
@@ -462,22 +443,18 @@ async fn outgoing_loop(
 
 async fn run_connection<S>(
     stream: S,
-    config: Config,
-    shutdown: Arc<AtomicBool>,
+    context: SyncContext,
     mut outbound_rx: broadcast::Receiver<Frame>,
-    echo: Arc<Mutex<EchoSuppressor>>,
-    secrets: Arc<dyn SecretStore>,
-    status: SyncStatus,
     connected_message: &'static str,
 ) where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    status.connection_started(connected_message);
+    context.status.connection_started(connected_message);
     let (mut reader, mut writer) = tokio::io::split(stream);
     let mut end_message = "Disconnected".to_owned();
 
     loop {
-        if shutdown.load(Ordering::Relaxed) {
+        if context.shutdown.load(Ordering::Relaxed) {
             break;
         }
 
@@ -486,7 +463,7 @@ async fn run_connection<S>(
                 match frame {
                     Ok(frame) => {
                         if let Err(err) = write_frame(&mut writer, &frame).await {
-                            status.set_error(format!("Send failed: {err:#}"));
+                            context.status.set_error(format!("Send failed: {err:#}"));
                             break;
                         }
                     }
@@ -498,11 +475,13 @@ async fn run_connection<S>(
                 match frame {
                     Ok(frame @ Frame::ClipboardText { .. }) => {
                         let text = {
-                            let mut echo = echo.lock().expect("echo suppressor poisoned");
-                            match echo.remote_text_to_apply(&frame, config.max_text_bytes) {
+                            let mut echo = context.echo.lock().expect("echo suppressor poisoned");
+                            match echo.remote_text_to_apply(&frame, context.config.max_text_bytes) {
                                 Ok(text) => text,
                                 Err(err) => {
-                                    status.set_error(format!("Remote clipboard rejected: {err:#}"));
+                                    context
+                                        .status
+                                        .set_error(format!("Remote clipboard rejected: {err:#}"));
                                     None
                                 }
                             }
@@ -510,21 +489,25 @@ async fn run_connection<S>(
                         if let Some(text) = text
                             && let Err(err) = set_system_clipboard_text(text).await
                         {
-                            status.set_error(format!("Clipboard write failed: {err:#}"));
+                            context
+                                .status
+                                .set_error(format!("Clipboard write failed: {err:#}"));
                         }
                     }
                     Ok(Frame::Ping) | Ok(Frame::Pong) => {}
                     Ok(Frame::Unpair) => {
-                        if let Err(err) = delete_peer(secrets.as_ref()) {
-                            status.set_error(format!("Delete peer failed: {err:#}"));
+                        if let Err(err) = delete_peer(context.secrets.as_ref()) {
+                            context
+                                .status
+                                .set_error(format!("Delete peer failed: {err:#}"));
                         } else {
-                            shutdown.store(true, Ordering::Relaxed);
-                            status.set_unpaired("Peer unpaired");
+                            context.shutdown.store(true, Ordering::Relaxed);
+                            context.status.set_unpaired("Peer unpaired");
                         }
                         break;
                     }
-                    Ok(Frame::Error { message }) => status.set_error(format!("Peer error: {message}")),
-                    Ok(Frame::Hello { .. }) => status.set_error("Unexpected hello"),
+                    Ok(Frame::Error { message }) => context.status.set_error(format!("Peer error: {message}")),
+                    Ok(Frame::Hello { .. }) => context.status.set_error("Unexpected hello"),
                     Err(err) => {
                         end_message = format!("Disconnected: {err:#}");
                         break;
@@ -533,7 +516,7 @@ async fn run_connection<S>(
             }
         }
     }
-    status.connection_ended(end_message);
+    context.status.connection_ended(end_message);
 }
 
 async fn set_system_clipboard_text(text: String) -> Result<()> {
