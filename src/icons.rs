@@ -56,6 +56,8 @@ const TRAY_ICON_ASSETS: &[TrayIconAsset] = &[TrayIconAsset {
 }];
 
 const WINDOW_ICON_RGBA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-256.rgba"));
+const TITLE_ICON_SIZE: usize = 64;
+const TITLE_ICON_RGBA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-64.rgba"));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayIconVariant {
@@ -91,6 +93,10 @@ pub fn window_icon() -> Arc<egui::IconData> {
         width: WINDOW_SIZE,
         height: WINDOW_SIZE,
     })
+}
+
+pub fn title_icon_image() -> egui::ColorImage {
+    egui::ColorImage::from_rgba_unmultiplied([TITLE_ICON_SIZE, TITLE_ICON_SIZE], TITLE_ICON_RGBA)
 }
 
 fn tray_icon_asset() -> &'static TrayIconAsset {

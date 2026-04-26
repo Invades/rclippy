@@ -49,6 +49,7 @@ pub struct RclippyApp {
     tray_controller: Option<TrayController>,
     _tray_handle: Option<TrayHandle>,
     last_tray_icon: Option<TrayIconVariant>,
+    title_icon: Option<egui::TextureHandle>,
     status_message: String,
     pairing_mode: PairingMode,
     pair_code: Option<String>,
@@ -83,6 +84,7 @@ impl RclippyApp {
             tray_controller,
             _tray_handle: tray_handle,
             last_tray_icon: None,
+            title_icon: None,
             status_message: String::new(),
             pairing_mode: PairingMode::Host,
             pair_code: None,
@@ -308,6 +310,18 @@ impl RclippyApp {
 
         self.last_tray_icon = Some(variant);
     }
+
+    fn title_icon(&mut self, ctx: &egui::Context) -> egui::TextureHandle {
+        self.title_icon
+            .get_or_insert_with(|| {
+                ctx.load_texture(
+                    "rclippy-title-icon",
+                    icons::title_icon_image(),
+                    egui::TextureOptions::LINEAR,
+                )
+            })
+            .clone()
+    }
 }
 
 impl eframe::App for RclippyApp {
@@ -315,9 +329,13 @@ impl eframe::App for RclippyApp {
         let ctx = ui.ctx().clone();
         self.poll_events(&ctx);
         self.update_tray_icon(&ctx);
+        let title_icon = self.title_icon(&ctx);
 
         egui::Frame::NONE.inner_margin(12).show(ui, |ui| {
-            ui.heading(APP_NAME);
+            ui.horizontal(|ui| {
+                ui.add(egui::Image::new(&title_icon).fit_to_exact_size(egui::vec2(28.0, 28.0)));
+                ui.heading(APP_NAME);
+            });
             ui.separator();
 
             let status = self.sync_status();
