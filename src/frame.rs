@@ -22,6 +22,7 @@ pub enum Frame {
     },
     Ping,
     Pong,
+    Unpair,
     Error {
         message: String,
     },

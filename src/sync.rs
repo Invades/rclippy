@@ -20,7 +20,7 @@ use crate::{
     clipboard::{ClipboardProvider, SystemClipboard},
     config::Config,
     frame::{Frame, read_frame, sha256_text, validate_clipboard_frame, write_frame},
-    secrets::{Identity, PeerIdentity},
+    secrets::{Identity, PeerIdentity, SecretStore, delete_peer},
     transport::{accept_tls, client_hello, connect_tls, server_hello, verify_expected_peer},
 };
 
@@ -29,6 +29,7 @@ pub struct SyncStatusSnapshot {
     pub paired: bool,
     pub connected: bool,
     pub active_connections: usize,
+    pub peer_unpaired: bool,
     pub message: String,
     pub last_error: Option<String>,
     pub peer_device_id: Option<String>,
@@ -41,6 +42,7 @@ impl Default for SyncStatusSnapshot {
             paired: false,
             connected: false,
             active_connections: 0,
+            peer_unpaired: false,
             message: "Not paired".to_owned(),
             last_error: None,
             peer_device_id: None,
@@ -62,6 +64,7 @@ impl SyncStatus {
     pub fn set_paired(&self, peer: &PeerIdentity) {
         let mut status = self.inner.lock().expect("sync status poisoned");
         status.paired = true;
+        status.peer_unpaired = false;
         status.peer_device_id = Some(peer.device_id.clone());
         status.peer_fingerprint = Some(peer.cert_fingerprint());
     }
@@ -90,9 +93,21 @@ impl SyncStatus {
         let mut status = self.inner.lock().expect("sync status poisoned");
         status.active_connections = status.active_connections.saturating_sub(1);
         status.connected = status.active_connections > 0;
-        if !status.connected {
+        if !status.connected && !status.peer_unpaired {
             status.message = message.into();
         }
+    }
+
+    pub fn set_unpaired(&self, message: impl Into<String>) {
+        let mut status = self.inner.lock().expect("sync status poisoned");
+        status.paired = false;
+        status.connected = false;
+        status.active_connections = 0;
+        status.peer_unpaired = true;
+        status.message = message.into();
+        status.last_error = None;
+        status.peer_device_id = None;
+        status.peer_fingerprint = None;
     }
 
     pub fn set_waiting(&self, message: impl Into<String>) {
@@ -171,6 +186,7 @@ pub struct SyncHandle {
     shutdown: Arc<AtomicBool>,
     tasks: Vec<TokioJoinHandle<()>>,
     clipboard_thread: Option<thread::JoinHandle<()>>,
+    outbound_tx: Option<broadcast::Sender<Frame>>,
     status: SyncStatus,
 }
 
@@ -182,12 +198,19 @@ impl SyncHandle {
             shutdown: Arc::new(AtomicBool::new(false)),
             tasks: Vec::new(),
             clipboard_thread: None,
+            outbound_tx: None,
             status,
         }
     }
 
     pub fn status(&self) -> SyncStatus {
         self.status.clone()
+    }
+
+    pub fn notify_unpair(&self) {
+        if let Some(outbound_tx) = &self.outbound_tx {
+            let _ = outbound_tx.send(Frame::Unpair);
+        }
     }
 
     pub fn stop(&mut self) {
@@ -212,6 +235,7 @@ pub fn start_background_sync(
     config: Config,
     identity: Identity,
     peer: Option<PeerIdentity>,
+    secrets: Arc<dyn SecretStore>,
 ) -> SyncHandle {
     let status = SyncStatus::default();
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -222,6 +246,7 @@ pub fn start_background_sync(
             shutdown,
             tasks: Vec::new(),
             clipboard_thread: None,
+            outbound_tx: None,
             status,
         };
     };
@@ -245,6 +270,7 @@ pub fn start_background_sync(
         shutdown.clone(),
         outbound_tx.clone(),
         echo.clone(),
+        secrets.clone(),
         status.clone(),
     ))];
 
@@ -254,8 +280,9 @@ pub fn start_background_sync(
             identity,
             peer,
             shutdown.clone(),
-            outbound_tx,
+            outbound_tx.clone(),
             echo,
+            secrets,
             status.clone(),
         )));
     } else {
@@ -266,8 +293,22 @@ pub fn start_background_sync(
         shutdown,
         tasks,
         clipboard_thread: Some(clipboard_thread),
+        outbound_tx: Some(outbound_tx.clone()),
         status,
     }
+}
+
+pub async fn send_unpair_notice(
+    config: Config,
+    identity: Identity,
+    peer: PeerIdentity,
+) -> Result<()> {
+    let peer_addr = config.peer_socket_addr()?;
+    let mut stream = connect_tls(peer_addr, &identity, &peer).await?;
+    let peer_id = client_hello(&mut stream, &identity).await?;
+    verify_expected_peer(&peer_id, &peer)?;
+    write_frame(&mut stream, &Frame::Unpair).await?;
+    Ok(())
 }
 
 fn spawn_clipboard_thread(
@@ -312,6 +353,7 @@ async fn incoming_loop(
     shutdown: Arc<AtomicBool>,
     outbound_tx: broadcast::Sender<Frame>,
     echo: Arc<Mutex<EchoSuppressor>>,
+    secrets: Arc<dyn SecretStore>,
     status: SyncStatus,
 ) {
     let listener = match TcpListener::bind(&config.listen_addr).await {
@@ -348,6 +390,7 @@ async fn incoming_loop(
                     shutdown.clone(),
                     rx,
                     echo.clone(),
+                    secrets.clone(),
                     status.clone(),
                     "Connected inbound",
                 )
@@ -366,6 +409,7 @@ async fn outgoing_loop(
     shutdown: Arc<AtomicBool>,
     outbound_tx: broadcast::Sender<Frame>,
     echo: Arc<Mutex<EchoSuppressor>>,
+    secrets: Arc<dyn SecretStore>,
     status: SyncStatus,
 ) {
     let peer_addr = match config.peer_socket_addr() {
@@ -401,6 +445,7 @@ async fn outgoing_loop(
                     shutdown.clone(),
                     rx,
                     echo.clone(),
+                    secrets.clone(),
                     status.clone(),
                     "Connected outbound",
                 )
@@ -421,6 +466,7 @@ async fn run_connection<S>(
     shutdown: Arc<AtomicBool>,
     mut outbound_rx: broadcast::Receiver<Frame>,
     echo: Arc<Mutex<EchoSuppressor>>,
+    secrets: Arc<dyn SecretStore>,
     status: SyncStatus,
     connected_message: &'static str,
 ) where
@@ -468,6 +514,15 @@ async fn run_connection<S>(
                         }
                     }
                     Ok(Frame::Ping) | Ok(Frame::Pong) => {}
+                    Ok(Frame::Unpair) => {
+                        if let Err(err) = delete_peer(secrets.as_ref()) {
+                            status.set_error(format!("Delete peer failed: {err:#}"));
+                        } else {
+                            shutdown.store(true, Ordering::Relaxed);
+                            status.set_unpaired("Peer unpaired");
+                        }
+                        break;
+                    }
                     Ok(Frame::Error { message }) => status.set_error(format!("Peer error: {message}")),
                     Ok(Frame::Hello { .. }) => status.set_error("Unexpected hello"),
                     Err(err) => {

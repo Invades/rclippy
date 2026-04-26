@@ -12,7 +12,7 @@ use crate::{
         Identity, KeychainSecretStore, PeerIdentity, SecretStore, delete_peer, load_peer,
         store_peer,
     },
-    sync::{SyncHandle, SyncStatusSnapshot, start_background_sync},
+    sync::{SyncHandle, SyncStatusSnapshot, send_unpair_notice, start_background_sync},
     tray::{TrayCommand, TrayController, TrayHandle},
 };
 
@@ -111,6 +111,7 @@ impl RclippyApp {
             self.config.clone(),
             self.identity.clone(),
             peer,
+            self.secrets.clone(),
         ));
     }
 
@@ -223,6 +224,32 @@ impl RclippyApp {
     }
 
     fn unpair(&mut self) {
+        let peer = match load_peer(self.secrets.as_ref()) {
+            Ok(peer) => peer,
+            Err(err) => {
+                self.status_message = format!("Load peer failed: {err}");
+                None
+            }
+        };
+
+        if let Some(sync) = &self.sync {
+            sync.notify_unpair();
+        }
+
+        if let Some(peer) = peer
+            && self.config.has_peer_addr()
+        {
+            let config = self.config.clone();
+            let identity = self.identity.clone();
+            let _ = self.runtime.block_on(async move {
+                tokio::time::timeout(
+                    std::time::Duration::from_millis(750),
+                    send_unpair_notice(config, identity, peer),
+                )
+                .await
+            });
+        }
+
         match delete_peer(self.secrets.as_ref()) {
             Ok(()) => {
                 self.status_message = "Unpaired".to_owned();
