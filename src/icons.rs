@@ -9,8 +9,7 @@ const WINDOW_SIZE: u32 = 256;
 struct TrayIconAsset {
     size: u32,
     color: &'static [u8],
-    mono_light: &'static [u8],
-    mono_dark: &'static [u8],
+    mono: &'static [u8],
 }
 
 #[cfg(target_os = "windows")]
@@ -18,32 +17,27 @@ const TRAY_ICON_ASSETS: &[TrayIconAsset] = &[
     TrayIconAsset {
         size: 32,
         color: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-32.rgba")),
-        mono_light: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-32-mono-light.rgba")),
-        mono_dark: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-32-mono-dark.rgba")),
+        mono: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-32-mono.rgba")),
     },
     TrayIconAsset {
         size: 40,
         color: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-40.rgba")),
-        mono_light: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-40-mono-light.rgba")),
-        mono_dark: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-40-mono-dark.rgba")),
+        mono: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-40-mono.rgba")),
     },
     TrayIconAsset {
         size: 48,
         color: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-48.rgba")),
-        mono_light: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-48-mono-light.rgba")),
-        mono_dark: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-48-mono-dark.rgba")),
+        mono: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-48-mono.rgba")),
     },
     TrayIconAsset {
         size: 64,
         color: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-64.rgba")),
-        mono_light: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-64-mono-light.rgba")),
-        mono_dark: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-64-mono-dark.rgba")),
+        mono: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-64-mono.rgba")),
     },
     TrayIconAsset {
         size: 96,
         color: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-96.rgba")),
-        mono_light: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-96-mono-light.rgba")),
-        mono_dark: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-96-mono-dark.rgba")),
+        mono: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-96-mono.rgba")),
     },
 ];
 
@@ -51,8 +45,7 @@ const TRAY_ICON_ASSETS: &[TrayIconAsset] = &[
 const TRAY_ICON_ASSETS: &[TrayIconAsset] = &[TrayIconAsset {
     size: 32,
     color: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-32.rgba")),
-    mono_light: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-32-mono-light.rgba")),
-    mono_dark: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-32-mono-dark.rgba")),
+    mono: include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-32-mono.rgba")),
 }];
 
 const WINDOW_ICON_RGBA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/rclippy-256.rgba"));
@@ -62,27 +55,22 @@ const TITLE_ICON_RGBA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/rclippy
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayIconVariant {
     Color,
-    MonochromeLight,
-    MonochromeDark,
+    Monochrome,
 }
 
-pub fn tray_icon_variant(monochrome: bool, system_theme: egui::Theme) -> TrayIconVariant {
+pub fn tray_icon_variant(monochrome: bool, _system_theme: egui::Theme) -> TrayIconVariant {
     if !monochrome {
         return TrayIconVariant::Color;
     }
 
-    match system_theme {
-        egui::Theme::Dark => TrayIconVariant::MonochromeLight,
-        egui::Theme::Light => TrayIconVariant::MonochromeDark,
-    }
+    TrayIconVariant::Monochrome
 }
 
 pub fn tray_icon(variant: TrayIconVariant) -> Result<Icon> {
     let asset = tray_icon_asset();
     let rgba = match variant {
         TrayIconVariant::Color => asset.color,
-        TrayIconVariant::MonochromeLight => asset.mono_light,
-        TrayIconVariant::MonochromeDark => asset.mono_dark,
+        TrayIconVariant::Monochrome => asset.mono,
     };
     Icon::from_rgba(rgba.to_vec(), asset.size, asset.size).context("build tray icon")
 }

@@ -348,6 +348,10 @@ impl RclippyApp {
 }
 
 impl eframe::App for RclippyApp {
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        visuals.panel_fill.to_normalized_gamma_f32()
+    }
+
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_events(ctx);
         self.hide_on_close_request(ctx);

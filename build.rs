@@ -4,8 +4,7 @@ use tiny_skia::{Pixmap, Transform};
 
 const ICON_SIZES: [u32; 6] = [32, 40, 48, 64, 96, 256];
 const TRAY_SIZES: [u32; 5] = [32, 40, 48, 64, 96];
-const MONO_LIGHT: [u8; 3] = [255, 255, 255];
-const MONO_DARK: [u8; 3] = [24, 24, 24];
+const MONO_WHITE: [u8; 3] = [255, 255, 255];
 const FIT_ALPHA_THRESHOLD: u8 = 48;
 const FIT_SCALE: f32 = 0.98;
 
@@ -27,12 +26,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     for size in TRAY_SIZES {
         let tray_rgba = render_svg(&mono_tree, size)?;
         fs::write(
-            out_dir.join(format!("rclippy-{size}-mono-light.rgba")),
-            monochrome_rgba(&tray_rgba, MONO_LIGHT),
-        )?;
-        fs::write(
-            out_dir.join(format!("rclippy-{size}-mono-dark.rgba")),
-            monochrome_rgba(&tray_rgba, MONO_DARK),
+            out_dir.join(format!("rclippy-{size}-mono.rgba")),
+            monochrome_rgba(&tray_rgba, MONO_WHITE),
         )?;
     }
 
