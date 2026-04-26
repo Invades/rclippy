@@ -155,7 +155,7 @@ fn build_tray(initial_icon: TrayIconVariant) -> Result<TrayMenu> {
     let icon = crate::icons::tray_icon(initial_icon)?;
     let tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
-        .with_menu_on_left_click(false)
+        .with_menu_on_left_click(cfg!(target_os = "macos"))
         .with_menu_on_right_click(true)
         .with_tooltip("rclippy")
         .with_icon(icon)
@@ -221,6 +221,13 @@ fn poll_tray_events(tx: &Sender<TrayCommand>) -> bool {
 }
 
 fn is_left_click_release(event: TrayIconEvent) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = event;
+        false
+    }
+
+    #[cfg(not(target_os = "macos"))]
     matches!(
         event,
         TrayIconEvent::Click {
