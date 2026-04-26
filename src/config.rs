@@ -79,6 +79,14 @@ impl Config {
         Ok(self.listen_addr.parse()?)
     }
 
+    pub fn listen_port(&self) -> Result<u16> {
+        Ok(self.listen_socket_addr()?.port())
+    }
+
+    pub fn set_listen_port(&mut self, port: u16) {
+        self.listen_addr = format!("0.0.0.0:{port}");
+    }
+
     pub fn peer_socket_addr(&self) -> Result<SocketAddr> {
         Ok(self.peer_addr.parse()?)
     }
@@ -155,6 +163,16 @@ mod tests {
         };
 
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn listen_port_updates_unspecified_addr() {
+        let mut config = Config::default();
+
+        config.set_listen_port(40000);
+
+        assert_eq!(config.listen_addr, "0.0.0.0:40000");
+        assert_eq!(config.listen_port().unwrap(), 40000);
     }
 
     #[test]

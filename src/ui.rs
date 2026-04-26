@@ -393,18 +393,22 @@ impl eframe::App for RclippyApp {
             let mut update_autostart = false;
 
             ui.horizontal(|ui| {
-                ui.label("Listen");
-                let response = ui.text_edit_singleline(&mut self.config.listen_addr);
+                ui.label("Peer Address");
+                let response = ui.text_edit_singleline(&mut self.config.peer_addr);
                 if response.changed() {
+                    self.join_addr = self.config.peer_addr.clone();
                     settings_changed = true;
                     restart_sync = true;
                 }
             });
             ui.horizontal(|ui| {
-                ui.label("Peer");
-                let response = ui.text_edit_singleline(&mut self.config.peer_addr);
-                if response.changed() {
-                    self.join_addr = self.config.peer_addr.clone();
+                ui.label("Listen Port");
+                let mut listen_port = self.config.listen_port().unwrap_or(38765);
+                if ui
+                    .add(egui::DragValue::new(&mut listen_port).range(1..=u16::MAX))
+                    .changed()
+                {
+                    self.config.set_listen_port(listen_port);
                     settings_changed = true;
                     restart_sync = true;
                 }
@@ -482,10 +486,6 @@ impl eframe::App for RclippyApp {
 
             match self.config.pairing_role {
                 PairingRole::Host => {
-                    ui.horizontal(|ui| {
-                        ui.label("Listen");
-                        ui.monospace(&self.config.listen_addr);
-                    });
                     if !status.paired {
                         if ui
                             .add_enabled(!self.pairing_busy, egui::Button::new("Show pairing code"))
