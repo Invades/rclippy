@@ -1,7 +1,8 @@
 use std::sync::{Arc, mpsc};
+use std::time::{Duration, Instant};
 
 use eframe::egui;
-use tokio::runtime::Runtime;
+use tokio::{runtime::Runtime, task::JoinHandle};
 
 use crate::{
     APP_NAME, autostart,
@@ -39,6 +40,8 @@ pub struct RclippyApp {
     quit_requested: bool,
     status_message: String,
     pair_code: Option<String>,
+    pair_code_expires_at: Option<Instant>,
+    pairing_task: Option<JoinHandle<()>>,
     join_addr: String,
     join_code: String,
     pairing_busy: bool,
@@ -75,6 +78,8 @@ impl RclippyApp {
             quit_requested: false,
             status_message: String::new(),
             pair_code: None,
+            pair_code_expires_at: None,
+            pairing_task: None,
             join_code: String::new(),
             pairing_busy: false,
         };
@@ -128,6 +133,7 @@ impl RclippyApp {
         }
 
         let code = generate_pairing_code();
+        let expires_at = Instant::now() + Duration::from_secs(30);
         let addr = match self.config.listen_socket_addr() {
             Ok(addr) => addr,
             Err(err) => {
@@ -138,6 +144,7 @@ impl RclippyApp {
 
         self.pairing_busy = true;
         self.pair_code = Some(code.clone());
+        self.pair_code_expires_at = Some(expires_at);
         self.status_message = "Waiting for peer".to_owned();
         if let Some(sync) = &mut self.sync {
             sync.stop();
@@ -145,12 +152,12 @@ impl RclippyApp {
 
         let tx = self.tx.clone();
         let identity = self.identity.clone();
-        self.runtime.spawn(async move {
+        self.pairing_task = Some(self.runtime.spawn(async move {
             let result = host_pairing_once(addr, &code, &identity)
                 .await
                 .map_err(|err| err.to_string());
             let _ = tx.send(UiEvent::PairingFinished(result));
-        });
+        }));
     }
 
     fn start_join_pairing(&mut self) {
@@ -182,17 +189,19 @@ impl RclippyApp {
 
         let tx = self.tx.clone();
         let identity = self.identity.clone();
-        self.runtime.spawn(async move {
+        self.pairing_task = Some(self.runtime.spawn(async move {
             let result = join_pairing(addr, &code, &identity)
                 .await
                 .map_err(|err| err.to_string());
             let _ = tx.send(UiEvent::PairingFinished(result));
-        });
+        }));
     }
 
     fn handle_pairing_result(&mut self, result: Result<PeerIdentity, String>) {
         self.pairing_busy = false;
         self.pair_code = None;
+        self.pair_code_expires_at = None;
+        self.pairing_task = None;
 
         match result {
             Ok(peer) => {
@@ -212,6 +221,17 @@ impl RclippyApp {
                 self.restart_sync();
             }
         }
+    }
+
+    fn cancel_pairing(&mut self) {
+        if let Some(task) = self.pairing_task.take() {
+            task.abort();
+        }
+        self.pairing_busy = false;
+        self.pair_code = None;
+        self.pair_code_expires_at = None;
+        self.status_message = "Pairing cancelled".to_owned();
+        self.restart_sync();
     }
 
     fn unpair(&mut self) {
@@ -487,14 +507,29 @@ impl eframe::App for RclippyApp {
             match self.config.pairing_role {
                 PairingRole::Host => {
                     if !status.paired {
-                        if ui
-                            .add_enabled(!self.pairing_busy, egui::Button::new("Show pairing code"))
-                            .clicked()
-                        {
-                            self.start_host_pairing();
-                        }
+                        ui.horizontal(|ui| {
+                            if ui
+                                .add_enabled(
+                                    !self.pairing_busy,
+                                    egui::Button::new("Show pairing code"),
+                                )
+                                .clicked()
+                            {
+                                self.start_host_pairing();
+                            }
+                            if self.pairing_busy && ui.button("Cancel").clicked() {
+                                self.cancel_pairing();
+                            }
+                        });
                         if let Some(code) = &self.pair_code {
-                            ui.monospace(format!("Code: {code}"));
+                            let seconds = self
+                                .pair_code_expires_at
+                                .and_then(|deadline| {
+                                    deadline.checked_duration_since(Instant::now())
+                                })
+                                .map(|remaining| remaining.as_secs().saturating_add(1))
+                                .unwrap_or(0);
+                            ui.monospace(format!("Code: {code} ({seconds}s)"));
                         }
                     }
                 }

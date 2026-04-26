@@ -18,7 +18,7 @@ use crate::secrets::{Identity, PeerIdentity};
 
 type HmacSha256 = Hmac<Sha256>;
 
-const PAIRING_TIMEOUT: Duration = Duration::from_secs(120);
+const PAIRING_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_PAIR_FRAME_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
