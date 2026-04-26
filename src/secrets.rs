@@ -14,9 +14,11 @@ use crate::APP_NAME;
 const DEVICE_ID_KEY: &str = "device-id";
 const CERT_DER_KEY: &str = "local-cert-der";
 const KEY_DER_KEY: &str = "local-key-pkcs8-der";
+const IDENTITY_KEY: &str = "identity-v1";
 const PEER_DEVICE_ID_KEY: &str = "peer-device-id";
 const PEER_DEVICE_NAME_KEY: &str = "peer-device-name";
 const PEER_CERT_DER_KEY: &str = "peer-cert-der";
+const PEER_KEY: &str = "peer-v1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity {
@@ -44,6 +46,60 @@ pub struct PeerIdentity {
     pub device_id: String,
     pub device_name: String,
     pub cert_der: Vec<u8>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct StoredIdentity {
+    device_id: String,
+    cert_der: Vec<u8>,
+    key_der: Vec<u8>,
+}
+
+impl From<Identity> for StoredIdentity {
+    fn from(identity: Identity) -> Self {
+        Self {
+            device_id: identity.device_id,
+            cert_der: identity.cert_der,
+            key_der: identity.key_der,
+        }
+    }
+}
+
+impl From<StoredIdentity> for Identity {
+    fn from(stored: StoredIdentity) -> Self {
+        Self {
+            device_id: stored.device_id,
+            cert_der: stored.cert_der,
+            key_der: stored.key_der,
+        }
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct StoredPeerIdentity {
+    device_id: String,
+    device_name: String,
+    cert_der: Vec<u8>,
+}
+
+impl From<PeerIdentity> for StoredPeerIdentity {
+    fn from(peer: PeerIdentity) -> Self {
+        Self {
+            device_id: peer.device_id,
+            device_name: peer.device_name,
+            cert_der: peer.cert_der,
+        }
+    }
+}
+
+impl From<StoredPeerIdentity> for PeerIdentity {
+    fn from(stored: StoredPeerIdentity) -> Self {
+        Self {
+            device_id: stored.device_id,
+            device_name: stored.device_name,
+            cert_der: stored.cert_der,
+        }
+    }
 }
 
 impl PeerIdentity {
@@ -131,7 +187,13 @@ impl SecretStore for MemorySecretStore {
 }
 
 pub fn ensure_identity(store: &dyn SecretStore) -> Result<Identity> {
-    let existing = match (
+    if let Some(identity) = store.get(IDENTITY_KEY)? {
+        let stored = serde_json::from_slice::<StoredIdentity>(&identity)
+            .context("stored identity is invalid")?;
+        return Ok(stored.into());
+    }
+
+    let legacy = match (
         store.get(DEVICE_ID_KEY)?,
         store.get(CERT_DER_KEY)?,
         store.get(KEY_DER_KEY)?,
@@ -144,14 +206,19 @@ pub fn ensure_identity(store: &dyn SecretStore) -> Result<Identity> {
         _ => None,
     };
 
-    if let Some(identity) = existing {
+    if let Some(identity) = legacy {
+        store.set(
+            IDENTITY_KEY,
+            &serde_json::to_vec(&StoredIdentity::from(identity.clone()))?,
+        )?;
         return Ok(identity);
     }
 
     let identity = generate_identity()?;
-    store.set(DEVICE_ID_KEY, identity.device_id.as_bytes())?;
-    store.set(CERT_DER_KEY, &identity.cert_der)?;
-    store.set(KEY_DER_KEY, &identity.key_der)?;
+    store.set(
+        IDENTITY_KEY,
+        &serde_json::to_vec(&StoredIdentity::from(identity.clone()))?,
+    )?;
     Ok(identity)
 }
 
@@ -179,6 +246,12 @@ pub fn generate_identity() -> Result<Identity> {
 }
 
 pub fn load_peer(store: &dyn SecretStore) -> Result<Option<PeerIdentity>> {
+    if let Some(peer) = store.get(PEER_KEY)? {
+        let stored = serde_json::from_slice::<StoredPeerIdentity>(&peer)
+            .context("stored peer is invalid")?;
+        return Ok(Some(stored.into()));
+    }
+
     let Some(device_id) = store.get(PEER_DEVICE_ID_KEY)? else {
         return Ok(None);
     };
@@ -192,21 +265,28 @@ pub fn load_peer(store: &dyn SecretStore) -> Result<Option<PeerIdentity>> {
         .context("stored peer device name is not UTF-8")?
         .unwrap_or_default();
 
-    Ok(Some(PeerIdentity {
+    let peer = PeerIdentity {
         device_id: String::from_utf8(device_id).context("stored peer device id is not UTF-8")?,
         device_name,
         cert_der,
-    }))
+    };
+    store.set(
+        PEER_KEY,
+        &serde_json::to_vec(&StoredPeerIdentity::from(peer.clone()))?,
+    )?;
+    Ok(Some(peer))
 }
 
 pub fn store_peer(store: &dyn SecretStore, peer: &PeerIdentity) -> Result<()> {
-    store.set(PEER_DEVICE_ID_KEY, peer.device_id.as_bytes())?;
-    store.set(PEER_DEVICE_NAME_KEY, peer.device_name.as_bytes())?;
-    store.set(PEER_CERT_DER_KEY, &peer.cert_der)?;
+    store.set(
+        PEER_KEY,
+        &serde_json::to_vec(&StoredPeerIdentity::from(peer.clone()))?,
+    )?;
     Ok(())
 }
 
 pub fn delete_peer(store: &dyn SecretStore) -> Result<()> {
+    store.delete(PEER_KEY)?;
     store.delete(PEER_DEVICE_ID_KEY)?;
     store.delete(PEER_DEVICE_NAME_KEY)?;
     store.delete(PEER_CERT_DER_KEY)?;
