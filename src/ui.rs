@@ -34,6 +34,7 @@ pub struct RclippyApp {
     tray_controller: Option<TrayController>,
     _tray_handle: Option<TrayHandle>,
     last_tray_icon: Option<TrayIconVariant>,
+    last_tray_unpair_enabled: Option<bool>,
     title_icon: Option<egui::TextureHandle>,
     quit_requested: bool,
     status_message: String,
@@ -69,6 +70,7 @@ impl RclippyApp {
             tray_controller,
             _tray_handle: tray_handle,
             last_tray_icon: None,
+            last_tray_unpair_enabled: None,
             title_icon: None,
             quit_requested: false,
             status_message: String::new(),
@@ -254,6 +256,7 @@ impl RclippyApp {
         while let Ok(event) = self.rx.try_recv() {
             match event {
                 UiEvent::PairingFinished(result) => self.handle_pairing_result(result),
+                UiEvent::Tray(TrayCommand::Unpair) => self.unpair(),
                 UiEvent::Tray(TrayCommand::ShowSettings) => {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
@@ -298,6 +301,25 @@ impl RclippyApp {
         self.last_tray_icon = Some(variant);
     }
 
+    fn update_tray_unpair_state(&mut self, paired: bool) {
+        if self.last_tray_unpair_enabled == Some(paired) {
+            return;
+        }
+
+        if let Some(handle) = &self._tray_handle {
+            handle.set_unpair_enabled(paired);
+        }
+
+        if let Some(controller) = &self.tray_controller
+            && let Err(err) = controller.set_unpair_enabled(paired)
+        {
+            self.status_message = format!("Tray menu failed: {err}");
+            return;
+        }
+
+        self.last_tray_unpair_enabled = Some(paired);
+    }
+
     fn title_icon(&mut self, ctx: &egui::Context) -> egui::TextureHandle {
         self.title_icon
             .get_or_insert_with(|| {
@@ -328,6 +350,7 @@ impl eframe::App for RclippyApp {
         self.poll_events(ctx);
         self.hide_on_close_request(ctx);
         self.update_tray_icon(ctx);
+        self.update_tray_unpair_state(self.sync_status().paired);
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
     }
 

@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use tray_icon::{
-    TrayIcon, TrayIconBuilder,
+    MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
     menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
 };
 
@@ -14,12 +14,14 @@ use crate::icons::TrayIconVariant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayCommand {
+    Unpair,
     ShowSettings,
     Quit,
 }
 
 enum TrayControl {
     SetIcon(TrayIconVariant),
+    SetUnpairEnabled(bool),
 }
 
 #[derive(Clone)]
@@ -33,10 +35,17 @@ impl TrayController {
             .send(TrayControl::SetIcon(variant))
             .context("send tray icon update")
     }
+
+    pub fn set_unpair_enabled(&self, enabled: bool) -> Result<()> {
+        self.tx
+            .send(TrayControl::SetUnpairEnabled(enabled))
+            .context("send tray unpair state update")
+    }
 }
 
 pub struct TrayHandle {
     tray: TrayIcon,
+    unpair: MenuItem,
     _event_thread: thread::JoinHandle<()>,
 }
 
@@ -44,6 +53,10 @@ impl TrayHandle {
     pub fn set_icon(&self, variant: TrayIconVariant) -> Result<()> {
         let icon = crate::icons::tray_icon(variant)?;
         self.tray.set_icon(Some(icon)).context("set tray icon")
+    }
+
+    pub fn set_unpair_enabled(&self, enabled: bool) {
+        self.unpair.set_enabled(enabled);
     }
 }
 
@@ -62,10 +75,11 @@ pub fn spawn_tray_thread(
 }
 
 pub fn create_tray(tx: Sender<TrayCommand>, initial_icon: TrayIconVariant) -> Result<TrayHandle> {
-    let (tray, settings_id, quit_id) = build_tray(initial_icon)?;
-    let _event_thread = spawn_menu_event_thread(tx, settings_id, quit_id);
+    let tray_menu = build_tray(initial_icon)?;
+    let _event_thread = spawn_tray_event_thread(tx, tray_menu.ids.clone());
     Ok(TrayHandle {
-        tray,
+        tray: tray_menu.tray,
+        unpair: tray_menu.unpair,
         _event_thread,
     })
 }
@@ -75,7 +89,7 @@ fn run_tray_thread(
     control_rx: Receiver<TrayControl>,
     initial_icon: TrayIconVariant,
 ) -> Result<()> {
-    let (tray, settings_id, quit_id) = build_tray(initial_icon)?;
+    let tray_menu = build_tray(initial_icon)?;
 
     loop {
         pump_platform_events();
@@ -84,13 +98,23 @@ fn run_tray_thread(
             match control {
                 TrayControl::SetIcon(variant) => {
                     let icon = crate::icons::tray_icon(variant)?;
-                    tray.set_icon(Some(icon)).context("set tray icon")?;
+                    tray_menu
+                        .tray
+                        .set_icon(Some(icon))
+                        .context("set tray icon")?;
+                }
+                TrayControl::SetUnpairEnabled(enabled) => {
+                    tray_menu.unpair.set_enabled(enabled);
                 }
             }
         }
 
+        if poll_tray_events(&tx) {
+            continue;
+        }
+
         if let Ok(event) = MenuEvent::receiver().recv_timeout(Duration::from_millis(250))
-            && handle_menu_event(&tx, &settings_id, &quit_id, event)
+            && handle_menu_event(&tx, &tray_menu.ids, event)
         {
             break;
         }
@@ -99,37 +123,66 @@ fn run_tray_thread(
     Ok(())
 }
 
-fn build_tray(initial_icon: TrayIconVariant) -> Result<(TrayIcon, MenuId, MenuId)> {
+struct TrayMenu {
+    tray: TrayIcon,
+    unpair: MenuItem,
+    ids: TrayMenuIds,
+}
+
+#[derive(Clone)]
+struct TrayMenuIds {
+    unpair: MenuId,
+    settings: MenuId,
+    quit: MenuId,
+}
+
+fn build_tray(initial_icon: TrayIconVariant) -> Result<TrayMenu> {
+    #[cfg(target_os = "windows")]
+    crate::windows_theme::enable_dark_menus_if_supported();
+
     let menu = Menu::new();
+    let unpair = MenuItem::new("Unpair", false, None);
     let settings = MenuItem::new("Settings", true, None);
     let quit = MenuItem::new("Quit", true, None);
-    let separator = PredefinedMenuItem::separator();
-    menu.append_items(&[&settings, &separator, &quit])
+    let top_separator = PredefinedMenuItem::separator();
+    let bottom_separator = PredefinedMenuItem::separator();
+    menu.append_items(&[&unpair, &top_separator, &settings, &bottom_separator, &quit])
         .context("build tray menu")?;
 
+    let unpair_id = unpair.id().clone();
     let settings_id = settings.id().clone();
     let quit_id = quit.id().clone();
     let icon = crate::icons::tray_icon(initial_icon)?;
     let tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
+        .with_menu_on_left_click(false)
         .with_menu_on_right_click(true)
         .with_tooltip("rclippy")
         .with_icon(icon)
         .build()
         .context("create tray icon")?;
 
-    Ok((tray, settings_id, quit_id))
+    Ok(TrayMenu {
+        tray,
+        unpair,
+        ids: TrayMenuIds {
+            unpair: unpair_id,
+            settings: settings_id,
+            quit: quit_id,
+        },
+    })
 }
 
-fn spawn_menu_event_thread(
+fn spawn_tray_event_thread(
     tx: Sender<TrayCommand>,
-    settings_id: MenuId,
-    quit_id: MenuId,
+    menu_ids: TrayMenuIds,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         loop {
+            let _ = poll_tray_events(&tx);
+
             if let Ok(event) = MenuEvent::receiver().recv_timeout(Duration::from_millis(250))
-                && handle_menu_event(&tx, &settings_id, &quit_id, event)
+                && handle_menu_event(&tx, &menu_ids, event)
             {
                 break;
             }
@@ -139,19 +192,43 @@ fn spawn_menu_event_thread(
 
 fn handle_menu_event(
     tx: &Sender<TrayCommand>,
-    settings_id: &MenuId,
-    quit_id: &MenuId,
+    menu_ids: &TrayMenuIds,
     event: tray_icon::menu::MenuEvent,
 ) -> bool {
-    if event.id == *settings_id {
+    if event.id == menu_ids.unpair {
+        let _ = tx.send(TrayCommand::Unpair);
+        false
+    } else if event.id == menu_ids.settings {
         let _ = tx.send(TrayCommand::ShowSettings);
         false
-    } else if event.id == *quit_id {
+    } else if event.id == menu_ids.quit {
         let _ = tx.send(TrayCommand::Quit);
         true
     } else {
         false
     }
+}
+
+fn poll_tray_events(tx: &Sender<TrayCommand>) -> bool {
+    let mut handled = false;
+    while let Ok(event) = TrayIconEvent::receiver().try_recv() {
+        handled = true;
+        if is_left_click_release(event) {
+            let _ = tx.send(TrayCommand::ShowSettings);
+        }
+    }
+    handled
+}
+
+fn is_left_click_release(event: TrayIconEvent) -> bool {
+    matches!(
+        event,
+        TrayIconEvent::Click {
+            button: MouseButton::Left,
+            button_state: MouseButtonState::Up,
+            ..
+        }
+    )
 }
 
 #[cfg(target_os = "windows")]
