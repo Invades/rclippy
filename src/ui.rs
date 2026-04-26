@@ -451,14 +451,16 @@ impl eframe::App for RclippyApp {
                         ui.label("Listen");
                         ui.monospace(&self.config.listen_addr);
                     });
-                    if ui
-                        .add_enabled(!self.pairing_busy, egui::Button::new("Show pairing code"))
-                        .clicked()
-                    {
-                        self.start_host_pairing();
-                    }
-                    if let Some(code) = &self.pair_code {
-                        ui.monospace(format!("Code: {code}"));
+                    if !status.paired {
+                        if ui
+                            .add_enabled(!self.pairing_busy, egui::Button::new("Show pairing code"))
+                            .clicked()
+                        {
+                            self.start_host_pairing();
+                        }
+                        if let Some(code) = &self.pair_code {
+                            ui.monospace(format!("Code: {code}"));
+                        }
                     }
                 }
                 PairingMode::Client => {
