@@ -47,6 +47,14 @@ pub fn generate_pairing_code() -> String {
     )
 }
 
+pub fn normalize_pairing_code(code: &str) -> Result<String> {
+    let digits: String = code.chars().filter(|ch| ch.is_ascii_digit()).collect();
+    if digits.len() != 6 {
+        bail!("pairing code must contain 6 digits");
+    }
+    Ok(digits)
+}
+
 pub async fn host_pairing_once(
     listen_addr: SocketAddr,
     code: &str,
@@ -55,7 +63,8 @@ pub async fn host_pairing_once(
     let listener = TcpListener::bind(listen_addr)
         .await
         .with_context(|| format!("bind pairing listener {listen_addr}"))?;
-    host_pairing_with_listener(listener, code, identity).await
+    let code = normalize_pairing_code(code)?;
+    host_pairing_with_listener(listener, &code, identity).await
 }
 
 async fn host_pairing_with_listener(
@@ -63,6 +72,7 @@ async fn host_pairing_with_listener(
     code: &str,
     identity: &Identity,
 ) -> Result<PeerIdentity> {
+    let code = normalize_pairing_code(code)?;
     let deadline = Instant::now() + PAIRING_TIMEOUT;
 
     loop {
@@ -76,7 +86,7 @@ async fn host_pairing_with_listener(
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .context("pairing timed out")?;
-        match timeout(remaining, handle_host_pairing(stream, code, identity)).await {
+        match timeout(remaining, handle_host_pairing(stream, &code, identity)).await {
             Ok(Ok(peer)) => return Ok(peer),
             Ok(Err(err)) if is_ignorable_pairing_probe(&err) => continue,
             Ok(Err(err)) => return Err(err),
@@ -94,7 +104,8 @@ pub async fn join_pairing(
         .await
         .context("pairing connection timed out")?
         .with_context(|| format!("connect pairing peer {peer_addr}"))?;
-    handle_client_pairing(stream, code, identity).await
+    let code = normalize_pairing_code(code)?;
+    handle_client_pairing(stream, &code, identity).await
 }
 
 async fn handle_host_pairing(
@@ -102,6 +113,7 @@ async fn handle_host_pairing(
     code: &str,
     identity: &Identity,
 ) -> Result<PeerIdentity> {
+    let code = normalize_pairing_code(code)?;
     let secret = StaticSecret::random_from_rng(OsRng);
     let public = PublicKey::from(&secret);
     let mut nonce = [0_u8; 32];
@@ -113,7 +125,7 @@ async fn handle_host_pairing(
     let host_hello = build_hello(identity, public.as_bytes(), &nonce);
     write_pair_frame(&mut stream, &PairFrame::Hello(host_hello.clone())).await?;
 
-    let key = derive_pair_key(code, &secret, &client_hello, &host_hello)?;
+    let key = derive_pair_key(&code, &secret, &client_hello, &host_hello)?;
     let transcript = transcript_bytes(&client_hello, &host_hello)?;
     let expected_client = proof(&key, b"client", &transcript);
 
@@ -138,6 +150,7 @@ async fn handle_client_pairing(
     code: &str,
     identity: &Identity,
 ) -> Result<PeerIdentity> {
+    let code = normalize_pairing_code(code)?;
     let secret = StaticSecret::random_from_rng(OsRng);
     let public = PublicKey::from(&secret);
     let mut nonce = [0_u8; 32];
@@ -150,7 +163,7 @@ async fn handle_client_pairing(
         bail!("expected host pairing hello");
     };
 
-    let key = derive_pair_key(code, &secret, &client_hello, &host_hello)?;
+    let key = derive_pair_key(&code, &secret, &client_hello, &host_hello)?;
     let transcript = transcript_bytes(&client_hello, &host_hello)?;
     let client_proof = STANDARD_NO_PAD.encode(proof(&key, b"client", &transcript));
     write_pair_frame(
@@ -161,7 +174,10 @@ async fn handle_client_pairing(
     )
     .await?;
 
-    let PairFrame::Proof { proof: host_proof } = read_pair_frame(&mut stream).await? else {
+    let PairFrame::Proof { proof: host_proof } = read_pair_frame(&mut stream)
+        .await
+        .context("host rejected pairing proof; check the pairing code")?
+    else {
         bail!("expected host pairing proof");
     };
     let expected_host = proof(&key, b"host", &transcript);
@@ -281,7 +297,7 @@ async fn read_pair_frame<R>(reader: &mut R) -> std::io::Result<PairFrame>
 where
     R: AsyncRead + Unpin,
 {
-    let len = reader.read_u32().await? as usize;
+    let len = reader.read_u32().await.map_err(pair_read_error)? as usize;
     if len > MAX_PAIR_FRAME_BYTES {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -289,8 +305,22 @@ where
         ));
     }
     let mut bytes = vec![0; len];
-    reader.read_exact(&mut bytes).await?;
+    reader
+        .read_exact(&mut bytes)
+        .await
+        .map_err(pair_read_error)?;
     serde_json::from_slice(&bytes).map_err(|err| std::io::Error::other(err.to_string()))
+}
+
+fn pair_read_error(err: std::io::Error) -> std::io::Error {
+    if err.kind() == std::io::ErrorKind::UnexpectedEof {
+        std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "peer closed pairing connection",
+        )
+    } else {
+        err
+    }
 }
 
 #[cfg(test)]
@@ -314,6 +344,16 @@ mod tests {
         let key_b = derive_pair_key_bytes("222-222", shared.as_bytes(), &transcript).unwrap();
 
         assert_ne!(key_a, key_b);
+    }
+
+    #[test]
+    fn pairing_code_normalizes_common_input() {
+        assert_eq!(normalize_pairing_code("123-456").unwrap(), "123456");
+        assert_eq!(normalize_pairing_code(" 123 456 ").unwrap(), "123456");
+        assert_eq!(
+            normalize_pairing_code("123-45").unwrap_err().to_string(),
+            "pairing code must contain 6 digits"
+        );
     }
 
     #[tokio::test]

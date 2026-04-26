@@ -7,7 +7,7 @@ use crate::{
     APP_NAME, autostart,
     config::{Config, ConfigStore, PairingRole},
     icons::{self, TrayIconVariant},
-    pairing::{generate_pairing_code, host_pairing_once, join_pairing},
+    pairing::{generate_pairing_code, host_pairing_once, join_pairing, normalize_pairing_code},
     secrets::{
         Identity, KeychainSecretStore, PeerIdentity, SecretStore, delete_peer, load_peer,
         store_peer,
@@ -166,11 +166,13 @@ impl RclippyApp {
             }
         };
 
-        let code = self.join_code.trim().to_owned();
-        if code.is_empty() {
-            self.status_message = "Pairing code required".to_owned();
-            return;
-        }
+        let code = match normalize_pairing_code(&self.join_code) {
+            Ok(code) => code,
+            Err(err) => {
+                self.status_message = err.to_string();
+                return;
+            }
+        };
 
         self.pairing_busy = true;
         self.status_message = "Pairing".to_owned();

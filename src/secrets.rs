@@ -4,9 +4,11 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
 use rand::{RngCore, rngs::OsRng};
 use rcgen::{CertificateParams, ExtendedKeyUsagePurpose, KeyPair, KeyUsagePurpose};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use serde::{Deserialize, Deserializer, Serializer};
 use sha2::{Digest, Sha256};
 
 use crate::APP_NAME;
@@ -47,7 +49,9 @@ pub struct PeerIdentity {
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 struct StoredIdentity {
     device_id: String,
+    #[serde(with = "base64_bytes")]
     cert_der: Vec<u8>,
+    #[serde(with = "base64_bytes")]
     key_der: Vec<u8>,
 }
 
@@ -75,6 +79,7 @@ impl From<StoredIdentity> for Identity {
 struct StoredPeerIdentity {
     device_id: String,
     device_name: String,
+    #[serde(with = "base64_bytes")]
     cert_der: Vec<u8>,
 }
 
@@ -276,6 +281,36 @@ fn store_vault(store: &dyn SecretStore, vault: &StoredVault) -> Result<()> {
     Ok(())
 }
 
+mod base64_bytes {
+    use super::*;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum BytesRepr {
+        Base64(String),
+        Array(Vec<u8>),
+    }
+
+    pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&STANDARD_NO_PAD.encode(bytes))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        match BytesRepr::deserialize(deserializer)? {
+            BytesRepr::Base64(value) => STANDARD_NO_PAD
+                .decode(value.as_bytes())
+                .map_err(serde::de::Error::custom),
+            BytesRepr::Array(bytes) => Ok(bytes),
+        }
+    }
+}
+
 pub fn cert_fingerprint(cert_der: &[u8]) -> String {
     hex::encode(Sha256::digest(cert_der))
 }
@@ -309,5 +344,43 @@ mod tests {
 
         delete_peer(&store).unwrap();
         assert_eq!(load_peer(&store).unwrap(), None);
+    }
+
+    #[test]
+    fn vault_serializes_bytes_compactly() {
+        let identity = generate_identity().unwrap();
+        let peer = PeerIdentity {
+            device_id: "peer".to_owned(),
+            device_name: "workstation".to_owned(),
+            cert_der: identity.cert_der.clone(),
+        };
+        let vault = StoredVault {
+            identity: Some(identity.into()),
+            peer: Some(peer.into()),
+        };
+
+        let bytes = serde_json::to_vec(&vault).unwrap();
+        let encoded = String::from_utf8(bytes).unwrap();
+
+        assert!(!encoded.contains("["));
+        assert!(encoded.len() < 2560);
+    }
+
+    #[test]
+    fn vault_reads_legacy_byte_arrays() {
+        let store = MemorySecretStore::default();
+        store
+            .set(
+                VAULT_KEY,
+                br#"{"identity":{"device_id":"id","cert_der":[1,2],"key_der":[3,4]},"peer":{"device_id":"peer","device_name":"workstation","cert_der":[5,6]}}"#,
+            )
+            .unwrap();
+
+        let identity = ensure_identity(&store).unwrap();
+        let peer = load_peer(&store).unwrap().unwrap();
+
+        assert_eq!(identity.cert_der, vec![1, 2]);
+        assert_eq!(identity.key_der, vec![3, 4]);
+        assert_eq!(peer.cert_der, vec![5, 6]);
     }
 }
