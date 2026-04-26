@@ -18,8 +18,26 @@ pub struct Config {
     pub peer_addr: String,
     pub start_on_login: bool,
     pub monochrome_tray_icon: bool,
+    pub pairing_role: PairingRole,
     pub poll_ms: u64,
     pub max_text_bytes: usize,
+}
+
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PairingRole {
+    #[default]
+    Host,
+    Client,
+}
+
+impl PairingRole {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Host => "Host: show pairing code",
+            Self::Client => "Client: enter pairing code",
+        }
+    }
 }
 
 impl Default for Config {
@@ -29,6 +47,7 @@ impl Default for Config {
             peer_addr: String::new(),
             start_on_login: false,
             monochrome_tray_icon: false,
+            pairing_role: PairingRole::Host,
             poll_ms: 500,
             max_text_bytes: 1_048_576,
         }
@@ -146,6 +165,7 @@ mod tests {
             peer_addr: "127.0.0.1:38766".to_owned(),
             start_on_login: true,
             monochrome_tray_icon: true,
+            pairing_role: PairingRole::Client,
             ..Config::default()
         };
 

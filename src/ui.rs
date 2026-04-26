@@ -5,7 +5,7 @@ use tokio::runtime::Runtime;
 
 use crate::{
     APP_NAME, autostart,
-    config::{Config, ConfigStore},
+    config::{Config, ConfigStore, PairingRole},
     icons::{self, TrayIconVariant},
     pairing::{generate_pairing_code, host_pairing_once, join_pairing},
     secrets::{
@@ -19,21 +19,6 @@ use crate::{
 enum UiEvent {
     PairingFinished(Result<PeerIdentity, String>),
     Tray(TrayCommand),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PairingMode {
-    Host,
-    Client,
-}
-
-impl PairingMode {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Host => "Host: show pairing code",
-            Self::Client => "Client: enter pairing code",
-        }
-    }
 }
 
 pub struct RclippyApp {
@@ -52,7 +37,6 @@ pub struct RclippyApp {
     title_icon: Option<egui::TextureHandle>,
     quit_requested: bool,
     status_message: String,
-    pairing_mode: PairingMode,
     pair_code: Option<String>,
     join_addr: String,
     join_code: String,
@@ -88,7 +72,6 @@ impl RclippyApp {
             title_icon: None,
             quit_requested: false,
             status_message: String::new(),
-            pairing_mode: PairingMode::Host,
             pair_code: None,
             join_code: String::new(),
             pairing_busy: false,
@@ -435,29 +418,31 @@ impl eframe::App for RclippyApp {
                     restart_sync = true;
                 }
             });
-            if settings_changed {
-                self.save_settings(update_autostart, restart_sync);
-            }
-
             ui.add_space(12.0);
             ui.heading("Pairing");
             ui.horizontal(|ui| {
                 ui.label("Role");
                 egui::ComboBox::from_id_salt("pairing_mode")
-                    .selected_text(self.pairing_mode.label())
+                    .selected_text(self.config.pairing_role.label())
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut self.pairing_mode,
-                            PairingMode::Host,
-                            PairingMode::Host.label(),
+                        let host = ui.selectable_value(
+                            &mut self.config.pairing_role,
+                            PairingRole::Host,
+                            PairingRole::Host.label(),
                         );
-                        ui.selectable_value(
-                            &mut self.pairing_mode,
-                            PairingMode::Client,
-                            PairingMode::Client.label(),
+                        let client = ui.selectable_value(
+                            &mut self.config.pairing_role,
+                            PairingRole::Client,
+                            PairingRole::Client.label(),
                         );
+                        if host.changed() || client.changed() {
+                            settings_changed = true;
+                        }
                     });
             });
+            if settings_changed {
+                self.save_settings(update_autostart, restart_sync);
+            }
             if status.paired {
                 ui.horizontal(|ui| {
                     if ui.button("Unpair").clicked() {
@@ -466,8 +451,8 @@ impl eframe::App for RclippyApp {
                 });
             }
 
-            match self.pairing_mode {
-                PairingMode::Host => {
+            match self.config.pairing_role {
+                PairingRole::Host => {
                     ui.horizontal(|ui| {
                         ui.label("Listen");
                         ui.monospace(&self.config.listen_addr);
@@ -484,7 +469,7 @@ impl eframe::App for RclippyApp {
                         }
                     }
                 }
-                PairingMode::Client => {
+                PairingRole::Client => {
                     ui.horizontal(|ui| {
                         ui.label("Host addr");
                         ui.text_edit_singleline(&mut self.join_addr);
