@@ -3665,6 +3665,7 @@ dependencies = [
 name = "rclippy"
 version = "0.1.0"
 dependencies = [
+ "accesskit_winit",
  "anyhow",
  "arboard",
  "auto-launch",

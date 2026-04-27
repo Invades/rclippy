@@ -10,12 +10,18 @@ permissions:
 
 jobs:
   test:
-    name: test
+    name: validate-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-22.04]
+        include:
+          - name: windows-x64
+            os: windows-latest
+          - name: macos-universal
+            os: macos-latest
+          - name: linux-x64
+            os: ubuntu-22.04
 
     steps:
       - uses: actions/checkout@v5
@@ -48,7 +54,7 @@ jobs:
       - run: cargo test
 
   package:
-    name: package-${{ matrix.name }}
+    name: build-release-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     needs: test
     strategy:
@@ -63,7 +69,7 @@ jobs:
             format: dmg
           - name: linux-x64
             os: ubuntu-22.04
-            format: deb,appimage
+            format: appimage
 
     steps:
       - uses: actions/checkout@v5
@@ -131,27 +137,24 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           cargo packager --release --formats ${{ matrix.format }} --out-dir dist/${{ matrix.name }}
-          mkdir -p dist/${{ matrix.name }}/portable
-          cp target/release/rclippy dist/${{ matrix.name }}/portable/rclippy
-          cp scripts/install-linux.sh dist/${{ matrix.name }}/portable/install.sh
-          cp target/package-icons/rclippy-256.png dist/${{ matrix.name }}/portable/rclippy.png
-          chmod +x dist/${{ matrix.name }}/portable/install.sh
-          tar -czf dist/${{ matrix.name }}/rclippy-linux-x64.tar.gz -C dist/${{ matrix.name }}/portable .
+          appimage="$(find dist/${{ matrix.name }} -maxdepth 1 -name '*.AppImage' -print -quit)"
+          mv "$appimage" dist/${{ matrix.name }}/rclippy-linux-x64.AppImage
+          cp scripts/install-linux.sh dist/${{ matrix.name }}/rclippy-linux-install.sh
+          chmod +x dist/${{ matrix.name }}/rclippy-linux-install.sh
+          (cd dist/${{ matrix.name }} && zip rclippy-linux-x64.zip rclippy-linux-x64.AppImage rclippy-linux-install.sh)
 
       - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
           name: rclippy-${{ matrix.name }}
           path: |
-            dist/${{ matrix.name }}/*.AppImage
-            dist/${{ matrix.name }}/*.deb
             dist/${{ matrix.name }}/*.dmg
             dist/${{ matrix.name }}/*.exe
-            dist/${{ matrix.name }}/*.tar.gz
+            dist/${{ matrix.name }}/*.zip
           if-no-files-found: error
 
   release:
-    name: github-release
+    name: publish-github-release
     runs-on: ubuntu-22.04
     needs: package
 
