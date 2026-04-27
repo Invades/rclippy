@@ -11,7 +11,6 @@ product-name = "rclippy"
 identifier = "eu.invades.rclippy"
 category = "Utility"
 icons = ["target/package-icons/*.png"]
-license-file = "LICENSE"
 
 [[package.metadata.packager.binaries]]
 path = "rclippy"
@@ -19,6 +18,11 @@ main = true
 
 [package.metadata.packager.macos]
 background-app = true
+
+[package.metadata.packager.dmg]
+window-size = { width = 600, height = 400 }
+app-position = { x = 180, y = 170 }
+application-folder-position = { x = 480, y = 170 }
 
 [package.metadata.packager.linux]
 generate-desktop-entry = true
