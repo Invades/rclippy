@@ -44,6 +44,7 @@ pub struct RclippyApp {
     title_icon: Option<egui::TextureHandle>,
     quit_requested: bool,
     status_message: String,
+    pairing_status_message: String,
     pair_code: Option<String>,
     pair_code_expires_at: Option<Instant>,
     pairing_task: Option<JoinHandle<()>>,
@@ -84,6 +85,7 @@ impl RclippyApp {
             title_icon: None,
             quit_requested: false,
             status_message: String::new(),
+            pairing_status_message: String::new(),
             pair_code: None,
             pair_code_expires_at: None,
             pairing_task: None,
@@ -125,8 +127,6 @@ impl RclippyApp {
                     && let Err(err) = autostart::set_enabled(self.config.start_on_login)
                 {
                     self.status_message = format!("Saved, but start-on-login failed: {err}");
-                } else {
-                    self.status_message = "Saved".to_owned();
                 }
                 if restart_sync {
                     self.restart_sync();
@@ -146,7 +146,7 @@ impl RclippyApp {
         let addr = match self.config.listen_socket_addr() {
             Ok(addr) => addr,
             Err(err) => {
-                self.status_message = format!("Bad listen address: {err}");
+                self.pairing_status_message = format!("Bad listen address: {err}");
                 return;
             }
         };
@@ -154,7 +154,7 @@ impl RclippyApp {
         self.pairing_busy = true;
         self.pair_code = Some(code.clone());
         self.pair_code_expires_at = Some(expires_at);
-        self.status_message = "Waiting for peer".to_owned();
+        self.pairing_status_message = "Waiting for peer".to_owned();
         if let Some(sync) = &mut self.sync {
             sync.stop();
         }
@@ -177,7 +177,7 @@ impl RclippyApp {
         let addr = match self.join_addr.parse() {
             Ok(addr) => addr,
             Err(err) => {
-                self.status_message = format!("Bad peer address: {err}");
+                self.pairing_status_message = format!("Bad peer address: {err}");
                 return;
             }
         };
@@ -185,13 +185,17 @@ impl RclippyApp {
         let code = match normalize_pairing_code(&self.join_code) {
             Ok(code) => code,
             Err(err) => {
-                self.status_message = err.to_string();
+                if self.join_code.trim().is_empty() {
+                    self.pairing_status_message = "Must provide code".to_owned();
+                } else {
+                    self.pairing_status_message = err.to_string();
+                }
                 return;
             }
         };
 
         self.pairing_busy = true;
-        self.status_message = "Pairing".to_owned();
+        self.pairing_status_message = "Pairing".to_owned();
         if let Some(sync) = &mut self.sync {
             sync.stop();
         }
@@ -215,18 +219,18 @@ impl RclippyApp {
         match result {
             Ok(peer) => {
                 if let Err(err) = store_peer(self.secrets.as_ref(), &peer) {
-                    self.status_message = format!("Store peer failed: {err}");
+                    self.pairing_status_message = format!("Store peer failed: {err}");
                     return;
                 }
                 if !self.join_addr.trim().is_empty() {
                     self.config.peer_addr = self.join_addr.trim().to_owned();
                     let _ = self.config_store.save(&self.config);
                 }
-                self.status_message = format!("Paired with {}", peer.display_name());
+                self.pairing_status_message.clear();
                 self.restart_sync();
             }
             Err(err) => {
-                self.status_message = format!("Pairing failed: {err}");
+                self.pairing_status_message = pairing_error_status(&err);
                 self.restart_sync();
             }
         }
@@ -239,7 +243,7 @@ impl RclippyApp {
         self.pairing_busy = false;
         self.pair_code = None;
         self.pair_code_expires_at = None;
-        self.status_message = "Pairing cancelled".to_owned();
+        self.pairing_status_message = "Pairing cancelled".to_owned();
         self.restart_sync();
     }
 
@@ -272,10 +276,10 @@ impl RclippyApp {
 
         match delete_peer(self.secrets.as_ref()) {
             Ok(()) => {
-                self.status_message = "Unpaired".to_owned();
+                self.pairing_status_message = "Unpaired".to_owned();
                 self.restart_sync();
             }
-            Err(err) => self.status_message = format!("Unpair failed: {err}"),
+            Err(err) => self.pairing_status_message = format!("Unpair failed: {err}"),
         }
     }
 
@@ -327,6 +331,29 @@ impl RclippyApp {
             .as_ref()
             .map(|sync| sync.status().snapshot())
             .unwrap_or_default()
+    }
+
+    fn pairing_info_status(&self, status: &SyncStatusSnapshot) -> String {
+        if !self.pairing_status_message.is_empty() {
+            return self.pairing_status_message.clone();
+        }
+
+        if status.peer_unpaired {
+            return "Unpaired".to_owned();
+        }
+
+        if !status.paired {
+            return String::new();
+        }
+
+        if !status.connected {
+            return "Disconnected".to_owned();
+        }
+
+        match load_peer(self.secrets.as_ref()) {
+            Ok(Some(peer)) => format!("Paired to {}", peer.display_name()),
+            _ => "Paired".to_owned(),
+        }
     }
 
     fn update_tray_icon(&mut self, ctx: &egui::Context) {
@@ -400,6 +427,14 @@ impl RclippyApp {
     }
 }
 
+fn pairing_error_status(err: &str) -> String {
+    if err.contains("proof failed") || err.contains("check the pairing code") {
+        "Incorrect code".to_owned()
+    } else {
+        format!("Pairing failed: {err}")
+    }
+}
+
 impl eframe::App for RclippyApp {
     fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
         visuals.panel_fill.to_normalized_gamma_f32()
@@ -433,12 +468,12 @@ impl eframe::App for RclippyApp {
                 ui.strong(if status.connected {
                     "Connected"
                 } else if status.paired {
-                    "Paired (Disconnected)"
+                    "Paired"
                 } else {
                     "Not paired"
                 });
             });
-            if let Some(err) = status.last_error {
+            if let Some(err) = &status.last_error {
                 ui.colored_label(egui::Color32::from_rgb(180, 40, 40), err);
             }
 
@@ -570,31 +605,29 @@ impl eframe::App for RclippyApp {
                     }
                 }
                 PairingRole::Client => {
-                    ui.horizontal(|ui| {
-                        ui.label("Host addr");
-                        ui.text_edit_singleline(&mut self.join_addr);
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Code");
-                        ui.text_edit_singleline(&mut self.join_code);
-                    });
-                    if ui
-                        .add_enabled(!self.pairing_busy, egui::Button::new("Pair"))
-                        .clicked()
-                    {
-                        self.start_join_pairing();
+                    if !status.paired {
+                        ui.horizontal(|ui| {
+                            ui.label("Host addr");
+                            ui.text_edit_singleline(&mut self.join_addr);
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Code");
+                            ui.text_edit_singleline(&mut self.join_code);
+                        });
+                        if ui
+                            .add_enabled(!self.pairing_busy, egui::Button::new("Pair"))
+                            .clicked()
+                        {
+                            self.start_join_pairing();
+                        }
                     }
                 }
             }
 
-            let status_message = if status.peer_unpaired {
-                status.message.as_str()
-            } else {
-                self.status_message.as_str()
-            };
-            if !status_message.is_empty() {
+            let pairing_info_status = self.pairing_info_status(&status);
+            if !pairing_info_status.is_empty() {
                 ui.add_space(8.0);
-                ui.label(status_message);
+                ui.label(pairing_info_status);
             }
         });
 
