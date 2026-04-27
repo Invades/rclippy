@@ -90,6 +90,7 @@ windows-sys = { version = "0.61", features = ["Win32_System_LibraryLoader", "Win
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
+winit = { version = "0.30", default-features = false, features = ["wayland", "x11"] }
 
 [patch.crates-io]
 winit = { git = "https://github.com/Invades/winit", branch = "win32-taskbar-created-0.30" }

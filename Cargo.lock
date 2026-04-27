@@ -3299,6 +3299,7 @@ dependencies = [
  "toml 0.9.12+spec-1.1.0",
  "tray-icon",
  "windows-sys 0.61.2",
+ "winit",
  "winresource",
  "x25519-dalek",
 ]

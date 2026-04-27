@@ -377,15 +377,19 @@ impl RclippyApp {
             .clone()
     }
 
-    fn hide_on_close_request(&mut self, ctx: &egui::Context) {
+    fn hide_on_close_request(&mut self, ctx: &egui::Context) -> bool {
         if self.quit_requested {
-            return;
+            return false;
         }
 
         if ctx.input(|input| input.viewport().close_requested()) {
+            self.focus_until = None;
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            return true;
         }
+
+        false
     }
 }
 
@@ -396,8 +400,10 @@ impl eframe::App for RclippyApp {
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_events(ctx);
-        self.hide_on_close_request(ctx);
-        self.focus_visible_window(ctx);
+        let hide_requested = self.hide_on_close_request(ctx);
+        if !hide_requested {
+            self.focus_visible_window(ctx);
+        }
         self.update_tray_icon(ctx);
         self.update_tray_unpair_state(self.sync_status().paired);
         ctx.request_repaint_after(std::time::Duration::from_millis(250));

@@ -17,7 +17,6 @@ const WINDOW_HEIGHT: f32 = 410.0;
 const WINDOW_SIZE: [f32; 2] = [WINDOW_WIDTH, WINDOW_HEIGHT];
 
 fn main() -> anyhow::Result<()> {
-    prefer_x11_for_hide_to_tray();
     rclippy::transport::install_crypto_provider();
 
     let minimized = std::env::args().any(|arg| arg == "--minimized");
@@ -27,42 +26,15 @@ fn main() -> anyhow::Result<()> {
     let keychain = KeychainSecretStore;
     let identity = ensure_identity(&keychain).context("load local identity from keychain")?;
 
-    let result = run_with_renderer(
+    run_with_renderer(
         initial_renderer(),
         minimized,
-        runtime.clone(),
-        config_store.clone(),
-        config.clone(),
-        identity.clone(),
-    );
-
-    #[cfg(target_os = "linux")]
-    let result = match result {
-        Ok(()) => Ok(()),
-        Err(err) => {
-            eprintln!("rclippy renderer failed, retrying with OpenGL: {err}");
-            run_with_renderer(
-                fallback_renderer(),
-                minimized,
-                runtime,
-                config_store,
-                config,
-                identity,
-            )
-        }
-    };
-
-    result.map_err(|err| anyhow::anyhow!(err.to_string()))
-}
-
-fn prefer_x11_for_hide_to_tray() {
-    #[cfg(target_os = "linux")]
-    if std::env::var_os("WINIT_UNIX_BACKEND").is_none() && std::env::var_os("DISPLAY").is_some() {
-        // hacky workaround as winit's Wayland backend cannot hide an already-created window.
-        unsafe {
-            std::env::set_var("WINIT_UNIX_BACKEND", "x11");
-        }
-    }
+        runtime,
+        config_store,
+        config,
+        identity,
+    )
+    .map_err(|err| anyhow::anyhow!(err.to_string()))
 }
 
 fn run_with_renderer(
@@ -75,6 +47,7 @@ fn run_with_renderer(
 ) -> eframe::Result {
     let options = eframe::NativeOptions {
         renderer,
+        event_loop_builder: linux_event_loop_builder(),
         viewport: egui::ViewportBuilder::default()
             .with_inner_size(WINDOW_SIZE)
             .with_min_inner_size(WINDOW_SIZE)
@@ -144,16 +117,48 @@ fn run_with_renderer(
 }
 
 #[cfg(target_os = "linux")]
+fn linux_event_loop_builder() -> Option<eframe::EventLoopBuilderHook> {
+    Some(Box::new(|builder| match linux_window_backend() {
+        LinuxWindowBackend::Wayland => {
+            use winit::platform::wayland::EventLoopBuilderExtWayland;
+            builder.with_wayland();
+        }
+        LinuxWindowBackend::X11 => {
+            use winit::platform::x11::EventLoopBuilderExtX11;
+            builder.with_x11();
+        }
+        LinuxWindowBackend::Auto => {}
+    }))
+}
+
+#[cfg(target_os = "linux")]
+enum LinuxWindowBackend {
+    Auto,
+    Wayland,
+    X11,
+}
+
+#[cfg(target_os = "linux")]
+fn linux_window_backend() -> LinuxWindowBackend {
+    match std::env::var("WINIT_UNIX_BACKEND").as_deref() {
+        Ok("wayland") => LinuxWindowBackend::Wayland,
+        Ok("x11") => LinuxWindowBackend::X11,
+        _ if std::env::var_os("DISPLAY").is_some() => LinuxWindowBackend::X11,
+        _ => LinuxWindowBackend::Auto,
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_event_loop_builder() -> Option<eframe::EventLoopBuilderHook> {
+    None
+}
+
+#[cfg(target_os = "linux")]
 fn initial_renderer() -> eframe::Renderer {
-    eframe::Renderer::Wgpu
+    eframe::Renderer::Glow
 }
 
 #[cfg(not(target_os = "linux"))]
 fn initial_renderer() -> eframe::Renderer {
     eframe::Renderer::default()
-}
-
-#[cfg(target_os = "linux")]
-fn fallback_renderer() -> eframe::Renderer {
-    eframe::Renderer::Glow
 }
