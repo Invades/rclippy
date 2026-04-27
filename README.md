@@ -43,7 +43,7 @@ rclippy-macos-universal.dmg
 
 Open the DMG and drag `rclippy.app` into Applications.
 
-> Current builds are unsigned. On macOS this may require opening the system settings to explicitly allo the app.
+> Current builds are unsigned. On macOS this may require opening the system settings to explicitly allow the app.
 
 ### Linux
 
