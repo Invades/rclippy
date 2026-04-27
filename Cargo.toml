@@ -29,7 +29,7 @@ arboard = "3.6"
 auto-launch = "0.6"
 base64 = "0.22"
 directories = "6"
-eframe = "0.34"
+eframe = { version = "0.34", default-features = false, features = ["default_fonts", "wayland", "wgpu", "x11"] }
 fontdb = "0.23"
 hex = "0.4"
 hkdf = "0.12"
@@ -58,9 +58,6 @@ tiny-skia = "0.11"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
-
-[target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dependencies]
-accesskit_winit = { version = "0.32.2", default-features = false, features = ["accesskit_unix", "async-io", "rwh_06"] }
 
 [patch.crates-io]
 winit = { git = "https://github.com/Invades/winit", branch = "win32-taskbar-created-0.30" }
