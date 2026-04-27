@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let package_icon_dir = PathBuf::from("target/package-icons");
     fs::create_dir_all(&package_icon_dir)?;
-    for size in [32, 128, 256, 512, 1024] {
+    for size in [16, 32, 128, 256, 512] {
         let premultiplied_rgba = render_svg_premultiplied(&tree, size)?;
         let icon = Pixmap::from_vec(
             premultiplied_rgba,
