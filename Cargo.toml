@@ -13,6 +13,10 @@ category = "Utility"
 icons = ["target/package-icons/*.png"]
 license-file = "LICENSE"
 
+[[package.metadata.packager.binaries]]
+path = "rclippy"
+main = true
+
 [package.metadata.packager.macos]
 background-app = true
 
