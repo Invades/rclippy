@@ -17,6 +17,11 @@ use crate::{
     tray::{TrayCommand, TrayController, TrayHandle},
 };
 
+const WINDOW_WIDTH: f32 = 320.0;
+const WINDOW_MIN_HEIGHT: f32 = 220.0;
+const WINDOW_MAX_HEIGHT: f32 = 520.0;
+const WINDOW_HEIGHT_EPSILON: f32 = 2.0;
+
 enum UiEvent {
     PairingFinished(Result<PeerIdentity, String>),
     Tray(TrayCommand),
@@ -46,6 +51,7 @@ pub struct RclippyApp {
     join_code: String,
     pairing_busy: bool,
     focus_until: Option<Instant>,
+    window_height: f32,
 }
 
 impl RclippyApp {
@@ -84,6 +90,7 @@ impl RclippyApp {
             join_code: String::new(),
             pairing_busy: false,
             focus_until: None,
+            window_height: WINDOW_MIN_HEIGHT,
         };
         app.restart_sync();
         app
@@ -413,7 +420,7 @@ impl eframe::App for RclippyApp {
         let ctx = ui.ctx().clone();
         let title_icon = self.title_icon(&ctx);
 
-        egui::Frame::NONE.inner_margin(12).show(ui, |ui| {
+        let frame_response = egui::Frame::NONE.inner_margin(12).show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.add(egui::Image::new(&title_icon).fit_to_exact_size(egui::vec2(28.0, 28.0)));
                 ui.heading(APP_NAME);
@@ -590,6 +597,16 @@ impl eframe::App for RclippyApp {
                 ui.label(status_message);
             }
         });
+
+        let desired_height = frame_response.response.rect.height();
+        let desired_height = desired_height.clamp(WINDOW_MIN_HEIGHT, WINDOW_MAX_HEIGHT);
+        if (desired_height - self.window_height).abs() > WINDOW_HEIGHT_EPSILON {
+            self.window_height = desired_height;
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                WINDOW_WIDTH,
+                desired_height,
+            )));
+        }
 
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(250));

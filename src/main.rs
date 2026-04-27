@@ -13,8 +13,9 @@ use rclippy::{
 use tokio::runtime::Runtime;
 
 const WINDOW_WIDTH: f32 = 320.0;
-const WINDOW_HEIGHT: f32 = 410.0;
-const WINDOW_SIZE: [f32; 2] = [WINDOW_WIDTH, WINDOW_HEIGHT];
+const WINDOW_MIN_HEIGHT: f32 = 220.0;
+const WINDOW_MAX_HEIGHT: f32 = 520.0;
+const WINDOW_SIZE: [f32; 2] = [WINDOW_WIDTH, WINDOW_MIN_HEIGHT];
 
 fn main() -> anyhow::Result<()> {
     rclippy::transport::install_crypto_provider();
@@ -51,7 +52,7 @@ fn run_with_renderer(
         viewport: egui::ViewportBuilder::default()
             .with_inner_size(WINDOW_SIZE)
             .with_min_inner_size(WINDOW_SIZE)
-            .with_max_inner_size(WINDOW_SIZE)
+            .with_max_inner_size([WINDOW_WIDTH, WINDOW_MAX_HEIGHT])
             .with_resizable(false)
             .with_maximize_button(false)
             .with_maximized(false)
