@@ -26,19 +26,44 @@ fn main() -> anyhow::Result<()> {
     let keychain = KeychainSecretStore;
     let identity = ensure_identity(&keychain).context("load local identity from keychain")?;
 
-    let (tray_tx, tray_rx) = mpsc::channel();
-    #[cfg(not(target_os = "macos"))]
-    let initial_icon = icons::tray_icon_variant(config.monochrome_tray_icon, egui::Theme::Dark);
-    #[cfg(not(target_os = "macos"))]
-    let (_tray_thread, tray_controller) = rclippy::tray::spawn_tray_thread(tray_tx, initial_icon);
-    #[cfg(not(target_os = "macos"))]
-    let tray_controller = Some(tray_controller);
-    #[cfg(target_os = "macos")]
-    let tray_controller = None;
-    #[cfg(target_os = "macos")]
-    let mut tray_tx = Some(tray_tx);
+    let result = run_with_renderer(
+        initial_renderer(),
+        minimized,
+        runtime.clone(),
+        config_store.clone(),
+        config.clone(),
+        identity.clone(),
+    );
 
+    #[cfg(target_os = "linux")]
+    let result = match result {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            eprintln!("rclippy renderer failed, retrying with OpenGL: {err}");
+            run_with_renderer(
+                fallback_renderer(),
+                minimized,
+                runtime,
+                config_store,
+                config,
+                identity,
+            )
+        }
+    };
+
+    result.map_err(|err| anyhow::anyhow!(err.to_string()))
+}
+
+fn run_with_renderer(
+    renderer: eframe::Renderer,
+    minimized: bool,
+    runtime: Arc<Runtime>,
+    config_store: ConfigStore,
+    config: rclippy::config::Config,
+    identity: rclippy::secrets::Identity,
+) -> eframe::Result {
     let options = eframe::NativeOptions {
+        renderer,
         viewport: egui::ViewportBuilder::default()
             .with_inner_size(WINDOW_SIZE)
             .with_min_inner_size(WINDOW_SIZE)
@@ -55,6 +80,20 @@ fn main() -> anyhow::Result<()> {
         "rclippy",
         options,
         Box::new(move |_cc| {
+            let (tray_tx, tray_rx) = mpsc::channel();
+            #[cfg(not(target_os = "macos"))]
+            let initial_icon =
+                icons::tray_icon_variant(config.monochrome_tray_icon, egui::Theme::Dark);
+            #[cfg(not(target_os = "macos"))]
+            let (_tray_thread, tray_controller) =
+                rclippy::tray::spawn_tray_thread(tray_tx, initial_icon);
+            #[cfg(not(target_os = "macos"))]
+            let tray_controller = Some(tray_controller);
+            #[cfg(target_os = "macos")]
+            let tray_controller = None;
+            #[cfg(target_os = "macos")]
+            let mut tray_tx = Some(tray_tx);
+
             if let Err(err) = rclippy::system_fonts::install(&_cc.egui_ctx) {
                 eprintln!("rclippy system font setup failed: {err:#}");
             }
@@ -81,15 +120,29 @@ fn main() -> anyhow::Result<()> {
             let tray_handle = None;
 
             Ok(Box::new(ui::RclippyApp::new(
-                runtime,
-                config_store,
-                config,
-                identity,
+                runtime.clone(),
+                config_store.clone(),
+                config.clone(),
+                identity.clone(),
                 tray_rx,
                 tray_controller,
                 tray_handle,
             )))
         }),
     )
-    .map_err(|err| anyhow::anyhow!(err.to_string()))
+}
+
+#[cfg(target_os = "linux")]
+fn initial_renderer() -> eframe::Renderer {
+    eframe::Renderer::Wgpu
+}
+
+#[cfg(not(target_os = "linux"))]
+fn initial_renderer() -> eframe::Renderer {
+    eframe::Renderer::default()
+}
+
+#[cfg(target_os = "linux")]
+fn fallback_renderer() -> eframe::Renderer {
+    eframe::Renderer::Glow
 }

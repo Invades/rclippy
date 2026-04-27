@@ -1,4 +1,5 @@
 use std::{
+    panic,
     sync::mpsc::{self, Receiver, Sender},
     thread,
     time::Duration,
@@ -69,8 +70,10 @@ pub fn spawn_tray_thread(
     let (control_tx, control_rx) = mpsc::channel();
     let controller = TrayController { tx: control_tx };
     let handle = thread::spawn(move || {
-        if let Err(err) = run_tray_thread(tx, control_rx, initial_icon) {
-            eprintln!("rclippy tray failed: {err:#}");
+        match panic::catch_unwind(|| run_tray_thread(tx, control_rx, initial_icon)) {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => eprintln!("rclippy tray failed: {err:#}"),
+            Err(_) => eprintln!("rclippy tray failed: platform tray library panicked"),
         }
     });
     (handle, controller)
