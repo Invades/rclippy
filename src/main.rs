@@ -17,6 +17,7 @@ const WINDOW_HEIGHT: f32 = 410.0;
 const WINDOW_SIZE: [f32; 2] = [WINDOW_WIDTH, WINDOW_HEIGHT];
 
 fn main() -> anyhow::Result<()> {
+    prefer_x11_for_hide_to_tray();
     rclippy::transport::install_crypto_provider();
 
     let minimized = std::env::args().any(|arg| arg == "--minimized");
@@ -52,6 +53,16 @@ fn main() -> anyhow::Result<()> {
     };
 
     result.map_err(|err| anyhow::anyhow!(err.to_string()))
+}
+
+fn prefer_x11_for_hide_to_tray() {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WINIT_UNIX_BACKEND").is_none() && std::env::var_os("DISPLAY").is_some() {
+        // hacky workaround as winit's Wayland backend cannot hide an already-created window.
+        unsafe {
+            std::env::set_var("WINIT_UNIX_BACKEND", "x11");
+        }
+    }
 }
 
 fn run_with_renderer(
