@@ -96,13 +96,41 @@ install_dependencies
 if [ "$(id -u)" -eq 0 ]; then
     bin_dir="/usr/local/bin"
     desktop_dir="/usr/share/applications"
+    icon_base_dir="/usr/share/icons/hicolor"
 else
     bin_dir="${HOME}/.local/bin"
     desktop_dir="${HOME}/.local/share/applications"
+    icon_base_dir="${HOME}/.local/share/icons/hicolor"
 fi
 
 mkdir -p "$bin_dir" "$desktop_dir"
 install -m 755 "$appimage" "${bin_dir}/${app_name}.AppImage"
+
+extract_dir=$(mktemp -d)
+cleanup() {
+    rm -rf "$extract_dir"
+}
+trap cleanup EXIT
+
+(
+    cd "$extract_dir"
+    "$appimage" --appimage-extract >/dev/null
+)
+
+icons_installed=false
+for icon_source in "${extract_dir}/squashfs-root"/usr/share/icons/hicolor/*/apps/"${app_name}.png"; do
+    if [ -f "$icon_source" ]; then
+        icon_size=$(basename "$(dirname "$(dirname "$icon_source")")")
+        icon_dir="${icon_base_dir}/${icon_size}/apps"
+        mkdir -p "$icon_dir"
+        install -m 644 "$icon_source" "${icon_dir}/${app_name}.png"
+        icons_installed=true
+    fi
+done
+
+if [ "$icons_installed" = false ]; then
+    echo "Could not find ${app_name}.png icons inside AppImage; shortcut may use fallback icon." >&2
+fi
 
 cat > "${desktop_dir}/${app_name}.desktop" <<EOF
 [Desktop Entry]
@@ -110,7 +138,7 @@ Type=Application
 Name=rclippy
 Comment=Encrypted LAN/VPN text clipboard sharing
 Exec=${bin_dir}/${app_name}.AppImage
-Icon=${bin_dir}/${app_name}.AppImage
+Icon=${app_name}
 Terminal=false
 Categories=Utility;
 StartupNotify=false
@@ -120,4 +148,8 @@ chmod 644 "${desktop_dir}/${app_name}.desktop"
 
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$desktop_dir" >/dev/null 2>&1 || true
+fi
+
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache "$icon_base_dir" >/dev/null 2>&1 || true
 fi
