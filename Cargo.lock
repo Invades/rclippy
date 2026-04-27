@@ -3278,6 +3278,7 @@ dependencies = [
  "directories",
  "eframe",
  "fontdb",
+ "gtk",
  "hex",
  "hkdf",
  "hmac",

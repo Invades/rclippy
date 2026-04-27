@@ -88,5 +88,8 @@ winresource = "0.1"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_LibraryLoader", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
 [patch.crates-io]
 winit = { git = "https://github.com/Invades/winit", branch = "win32-taskbar-created-0.30" }

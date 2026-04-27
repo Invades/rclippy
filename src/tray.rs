@@ -94,6 +94,7 @@ fn run_tray_thread(
     control_rx: Receiver<TrayControl>,
     initial_icon: TrayIconVariant,
 ) -> Result<()> {
+    init_platform_tray()?;
     let tray_menu = build_tray(initial_icon)?;
 
     loop {
@@ -257,5 +258,23 @@ fn pump_platform_events() {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn init_platform_tray() -> Result<()> {
+    gtk::init().context("initialize GTK for tray")
+}
+
+#[cfg(not(target_os = "linux"))]
+fn init_platform_tray() -> Result<()> {
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn pump_platform_events() {
+    while gtk::events_pending() {
+        gtk::main_iteration_do(false);
+    }
+}
+
 #[cfg(not(target_os = "windows"))]
+#[cfg(not(target_os = "linux"))]
 fn pump_platform_events() {}
