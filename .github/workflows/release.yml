@@ -63,7 +63,6 @@ jobs:
         include:
           - name: windows-x64
             os: windows-latest
-            format: nsis
           - name: macos-universal
             os: macos-latest
             format: dmg
@@ -78,14 +77,8 @@ jobs:
         with:
           cache-on-failure: true
       - name: Install cargo-packager
+        if: runner.os != 'Windows'
         run: cargo install cargo-packager --locked
-
-      - name: Install Windows packaging dependencies
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          choco install nsis -y --no-progress
-          "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install Linux packaging dependencies
         if: runner.os == 'Linux'
@@ -127,7 +120,14 @@ jobs:
 
       - name: Package Windows
         if: runner.os == 'Windows'
-        run: cargo packager --release --formats ${{ matrix.format }} --out-dir dist/${{ matrix.name }}
+        shell: pwsh
+        run: |
+          cargo build --release --bin rclippy-uninstaller
+          $env:RCLIPPY_INSTALLER_PAYLOAD = (Resolve-Path target/release/rclippy.exe).Path
+          $env:RCLIPPY_UNINSTALLER_PAYLOAD = (Resolve-Path target/release/rclippy-uninstaller.exe).Path
+          cargo build --release --bin rclippy-installer
+          New-Item -ItemType Directory -Force dist/${{ matrix.name }}
+          Copy-Item target/release/rclippy-installer.exe dist/${{ matrix.name }}/rclippy-windows-x64-installer.exe
 
       - name: Package macOS
         if: runner.os == 'macOS'

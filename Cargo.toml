@@ -19,10 +19,6 @@ background-app = true
 [package.metadata.packager.linux]
 generate-desktop-entry = true
 
-[package.metadata.packager.nsis]
-installer-mode = "currentUser"
-display-language-selector = false
-
 [dependencies]
 anyhow = "1"
 arboard = "3.6"
@@ -55,9 +51,10 @@ tempfile = "3"
 [build-dependencies]
 resvg = "0.45"
 tiny-skia = "0.11"
+winresource = "0.1"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_System_LibraryLoader", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [patch.crates-io]
 winit = { git = "https://github.com/Invades/winit", branch = "win32-taskbar-created-0.30" }

@@ -1,15 +1,23 @@
-use std::{env, error::Error, fs, path::PathBuf};
+use std::{
+    env,
+    error::Error,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use tiny_skia::{IntSize, Pixmap, Transform};
 
 const ICON_SIZES: [u32; 6] = [32, 40, 48, 64, 96, 256];
 const TRAY_SIZES: [u32; 5] = [32, 40, 48, 64, 96];
+const WINDOWS_ICON_SIZES: [u32; 4] = [16, 32, 48, 256];
 const MONO_WHITE: [u8; 3] = [255, 255, 255];
 const FIT_ALPHA_THRESHOLD: u8 = 48;
 const FIT_SCALE: f32 = 0.98;
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=assets/rclippy.svg");
+    println!("cargo:rerun-if-env-changed=RCLIPPY_INSTALLER_PAYLOAD");
+    println!("cargo:rerun-if-env-changed=RCLIPPY_UNINSTALLER_PAYLOAD");
 
     let svg = fs::read("assets/rclippy.svg")?;
     let tree = resvg::usvg::Tree::from_data(&svg, &resvg::usvg::Options::default())?;
@@ -17,6 +25,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mono_tree =
         resvg::usvg::Tree::from_data(mono_svg.as_bytes(), &resvg::usvg::Options::default())?;
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").ok_or("OUT_DIR unset")?);
+    write_installer_payload(&out_dir)?;
+    write_named_payload(
+        &out_dir,
+        "RCLIPPY_UNINSTALLER_PAYLOAD",
+        "rclippy-uninstaller-payload.exe",
+    )?;
+    write_windows_icon(&out_dir, &tree)?;
 
     for size in ICON_SIZES {
         let rgba = render_svg(&tree, size)?;
@@ -43,7 +58,140 @@ fn main() -> Result<(), Box<dyn Error>> {
         )?;
     }
 
+    compile_windows_resources(&out_dir)?;
+
     Ok(())
+}
+
+fn write_installer_payload(out_dir: &Path) -> Result<(), Box<dyn Error>> {
+    write_named_payload(
+        out_dir,
+        "RCLIPPY_INSTALLER_PAYLOAD",
+        "rclippy-installer-payload.exe",
+    )
+}
+
+fn write_named_payload(
+    out_dir: &Path,
+    env_name: &str,
+    file_name: &str,
+) -> Result<(), Box<dyn Error>> {
+    let payload_path = out_dir.join(file_name);
+    match env::var_os(env_name) {
+        Some(path) => fs::copy(PathBuf::from(path), payload_path).map(|_| ())?,
+        None => fs::write(payload_path, [])?,
+    }
+    Ok(())
+}
+
+fn write_windows_icon(out_dir: &Path, tree: &resvg::usvg::Tree) -> Result<(), Box<dyn Error>> {
+    let mut icon_images = Vec::new();
+    for size in WINDOWS_ICON_SIZES {
+        icon_images.push((size, render_svg(tree, size)?));
+    }
+
+    let ico = encode_ico(&icon_images)?;
+    fs::create_dir_all("target/package-icons")?;
+    fs::write(out_dir.join("rclippy.ico"), &ico)?;
+    fs::write(
+        PathBuf::from("target/package-icons").join("rclippy.ico"),
+        ico,
+    )?;
+    Ok(())
+}
+
+fn compile_windows_resources(out_dir: &Path) -> Result<(), Box<dyn Error>> {
+    if env::var_os("CARGO_CFG_WINDOWS").is_some() {
+        winresource::WindowsResource::new()
+            .set_icon(out_dir.join("rclippy.ico").to_string_lossy().as_ref())
+            .compile()?;
+    }
+
+    Ok(())
+}
+
+fn encode_ico(images: &[(u32, Vec<u8>)]) -> Result<Vec<u8>, Box<dyn Error>> {
+    let count = u16::try_from(images.len())?;
+    let mut entries = Vec::new();
+    let mut payloads = Vec::new();
+    let mut offset = 6 + images.len() as u32 * 16;
+
+    for (size, rgba) in images {
+        let dib = encode_icon_dib(*size, rgba)?;
+        entries.push((*size, dib.len() as u32, offset));
+        offset += dib.len() as u32;
+        payloads.push(dib);
+    }
+
+    let mut ico = Vec::new();
+    push_u16(&mut ico, 0);
+    push_u16(&mut ico, 1);
+    push_u16(&mut ico, count);
+
+    for (size, len, offset) in entries {
+        ico.push(if size == 256 { 0 } else { size as u8 });
+        ico.push(if size == 256 { 0 } else { size as u8 });
+        ico.push(0);
+        ico.push(0);
+        push_u16(&mut ico, 1);
+        push_u16(&mut ico, 32);
+        push_u32(&mut ico, len);
+        push_u32(&mut ico, offset);
+    }
+
+    for payload in payloads {
+        ico.extend_from_slice(&payload);
+    }
+
+    Ok(ico)
+}
+
+fn encode_icon_dib(size: u32, rgba: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+    let pixels_len = (size * size * 4) as usize;
+    if rgba.len() != pixels_len {
+        return Err("invalid icon rgba length".into());
+    }
+
+    let mask_stride = size.div_ceil(32) * 4;
+    let mut dib = Vec::with_capacity(40 + pixels_len + (mask_stride * size) as usize);
+    push_u32(&mut dib, 40);
+    push_i32(&mut dib, size as i32);
+    push_i32(&mut dib, (size * 2) as i32);
+    push_u16(&mut dib, 1);
+    push_u16(&mut dib, 32);
+    push_u32(&mut dib, 0);
+    push_u32(&mut dib, size * size * 4);
+    push_i32(&mut dib, 0);
+    push_i32(&mut dib, 0);
+    push_u32(&mut dib, 0);
+    push_u32(&mut dib, 0);
+
+    for y in (0..size).rev() {
+        for x in 0..size {
+            let index = ((y * size + x) * 4) as usize;
+            dib.extend_from_slice(&[
+                rgba[index + 2],
+                rgba[index + 1],
+                rgba[index],
+                rgba[index + 3],
+            ]);
+        }
+    }
+
+    dib.extend(std::iter::repeat_n(0, (mask_stride * size) as usize));
+    Ok(dib)
+}
+
+fn push_u16(output: &mut Vec<u8>, value: u16) {
+    output.extend_from_slice(&value.to_le_bytes());
+}
+
+fn push_u32(output: &mut Vec<u8>, value: u32) {
+    output.extend_from_slice(&value.to_le_bytes());
+}
+
+fn push_i32(output: &mut Vec<u8>, value: i32) {
+    output.extend_from_slice(&value.to_le_bytes());
 }
 
 fn render_svg(tree: &resvg::usvg::Tree, size: u32) -> Result<Vec<u8>, Box<dyn Error>> {
