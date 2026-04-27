@@ -16,6 +16,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: windows-x64
+            os: windows-latest
+          - name: macos-universal
+            os: macos-latest
           - name: linux-x64
             os: ubuntu-22.04
 
@@ -57,6 +61,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: windows-x64
+            os: windows-latest
+          - name: macos-universal
+            os: macos-latest
+            format: dmg
           - name: linux-x64
             os: ubuntu-22.04
             format: appimage
