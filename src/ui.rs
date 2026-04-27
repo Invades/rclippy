@@ -45,6 +45,7 @@ pub struct RclippyApp {
     join_addr: String,
     join_code: String,
     pairing_busy: bool,
+    focus_until: Option<Instant>,
 }
 
 impl RclippyApp {
@@ -82,6 +83,7 @@ impl RclippyApp {
             pairing_task: None,
             join_code: String::new(),
             pairing_busy: false,
+            focus_until: None,
         };
         app.restart_sync();
         app
@@ -279,17 +281,38 @@ impl RclippyApp {
             match event {
                 UiEvent::PairingFinished(result) => self.handle_pairing_result(result),
                 UiEvent::Tray(TrayCommand::Unpair) => self.unpair(),
-                UiEvent::Tray(TrayCommand::ShowSettings) => {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                }
+                UiEvent::Tray(TrayCommand::ShowSettings) => self.show_settings(ctx),
                 UiEvent::Tray(TrayCommand::Quit) => {
                     self.quit_requested = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             }
         }
+    }
+
+    fn show_settings(&mut self, ctx: &egui::Context) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(
+            egui::UserAttentionType::Informational,
+        ));
+        self.focus_until = Some(Instant::now() + Duration::from_millis(750));
+    }
+
+    fn focus_visible_window(&mut self, ctx: &egui::Context) {
+        let Some(until) = self.focus_until else {
+            return;
+        };
+
+        if Instant::now() > until || ctx.input(|input| input.viewport().focused.unwrap_or(false)) {
+            self.focus_until = None;
+            return;
+        }
+
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
     }
 
     fn sync_status(&self) -> SyncStatusSnapshot {
@@ -362,7 +385,6 @@ impl RclippyApp {
         if ctx.input(|input| input.viewport().close_requested()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
     }
 }
@@ -375,6 +397,7 @@ impl eframe::App for RclippyApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_events(ctx);
         self.hide_on_close_request(ctx);
+        self.focus_visible_window(ctx);
         self.update_tray_icon(ctx);
         self.update_tray_unpair_state(self.sync_status().paired);
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
