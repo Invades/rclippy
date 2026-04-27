@@ -37,6 +37,18 @@ excluded-libraries = [
     "libgmodule-2.0*",
     "libgobject-2.0*",
     "libgthread-2.0*",
+    "libmount*",
+    "libblkid*",
+    "libuuid*",
+    "libEGL*",
+    "libGL*",
+    "libGLES*",
+    "libgbm*",
+    "libdrm*",
+    "libwayland*",
+    "libx11*",
+    "libX11*",
+    "libxcb*",
 ]
 
 [dependencies]
