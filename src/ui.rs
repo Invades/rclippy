@@ -570,13 +570,13 @@ impl eframe::App for RclippyApp {
                     ui.horizontal(|ui| {
                         ui.label("Code");
                         ui.text_edit_singleline(&mut self.join_code);
-                        if ui
-                            .add_enabled(!self.pairing_busy, egui::Button::new("Pair"))
-                            .clicked()
-                        {
-                            self.start_join_pairing();
-                        }
                     });
+                    if ui
+                        .add_enabled(!self.pairing_busy, egui::Button::new("Pair"))
+                        .clicked()
+                    {
+                        self.start_join_pairing();
+                    }
                 }
             }
 
