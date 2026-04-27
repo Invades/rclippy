@@ -209,7 +209,7 @@ fn handle_menu_event(
         false
     } else if event.id == menu_ids.quit {
         let _ = tx.send(TrayCommand::Quit);
-        true
+        false
     } else {
         false
     }

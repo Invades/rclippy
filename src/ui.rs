@@ -294,8 +294,14 @@ impl RclippyApp {
                 UiEvent::Tray(TrayCommand::Unpair) => self.unpair(),
                 UiEvent::Tray(TrayCommand::ShowSettings) => self.show_settings(ctx),
                 UiEvent::Tray(TrayCommand::Quit) => {
-                    self.quit_requested = true;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    #[cfg(target_os = "linux")]
+                    std::process::exit(0);
+
+                    #[cfg(not(target_os = "linux"))]
+                    {
+                        self.quit_requested = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
                 }
             }
         }
