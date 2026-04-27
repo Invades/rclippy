@@ -2,7 +2,7 @@
 name = "rclippy"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "GPL-3.0-or-later"
 description = "Simple encrypted LAN/VPN text clipboard sharing."
 repository = "https://github.com/Invades/rclippy"
 
