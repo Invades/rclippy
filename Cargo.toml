@@ -27,6 +27,18 @@ application-folder-position = { x = 480, y = 170 }
 [package.metadata.packager.linux]
 generate-desktop-entry = true
 
+[package.metadata.packager.appimage]
+excluded-libraries = [
+    "libappindicator3*",
+    "libayatana-appindicator3*",
+    "libayatana-ido3*",
+    "libgio-2.0*",
+    "libglib-2.0*",
+    "libgmodule-2.0*",
+    "libgobject-2.0*",
+    "libgthread-2.0*",
+]
+
 [dependencies]
 anyhow = "1"
 arboard = "3.6"
