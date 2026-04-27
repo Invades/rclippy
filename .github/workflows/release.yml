@@ -159,16 +159,36 @@ jobs:
     needs: package
 
     steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
       - name: Download packages
         uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
 
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          previous_tag="$(git tag --sort=-v:refname | grep -v "^${GITHUB_REF_NAME}$" | head -n 1 || true)"
+          if [ -z "$previous_tag" ]; then
+            previous_tag="dev"
+          fi
+          compare_url="https://github.com/${GITHUB_REPOSITORY}/compare/${previous_tag}...${GITHUB_REF_NAME}"
+          echo "[Full changelog](${compare_url})" > release-notes.md
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          name: rclippy ${{ github.ref_name }}
+          name: ${{ steps.version.outputs.version }}
           tag_name: ${{ github.ref_name }}
+          body_path: release-notes.md
           fail_on_unmatched_files: true
           files: dist/*
