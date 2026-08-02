@@ -1,6 +1,6 @@
 # rclippy (remote clippy)
 
-Simple encrypted clipboard sharing for two computers on the same LAN or VPN.
+Simple encrypted clipboard sharing between two computers on the same LAN or VPN.
 
 <p align="center">
   <img src="./assets/rclippy.svg" width="180" alt="rclippy logo">
